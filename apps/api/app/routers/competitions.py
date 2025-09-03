@@ -12,7 +12,8 @@ from app.schemas.competition import (
     Participant as ParticipantSchema,
 )
 from datetime import datetime, timezone
-from app.deps.auth import get_current_user
+from app.deps.auth import get_current_user, get_current_user_optional
+from app.config import settings
 
 router = APIRouter()
 
@@ -72,8 +73,15 @@ async def get_competition(competition_id: int, db: Session = Depends(get_db)):
 async def create_competition(
     competition: CompetitionCreate,
     db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
+    maybe_user: UserModel | None = Depends(get_current_user_optional),
 ):
+    # Require auth outside local environment
+    if settings.app_env != "local":
+        if maybe_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        # Admin allowlist check
+        if (maybe_user.wallet_address or "").lower() not in set(settings.admin_wallets):
+            raise HTTPException(status_code=403, detail="Admin privileges required")
     db_competition = CompetitionModel(**competition.model_dump())
     db.add(db_competition)
     db.commit()

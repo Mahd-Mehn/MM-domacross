@@ -78,3 +78,63 @@ class CompetitionWithLeaderboard(Competition):
 
 class PortfolioUpdate(BaseModel):
     portfolio_value: Decimal
+
+
+class DomainETFBase(BaseModel):
+    name: str
+    symbol: str
+    description: str | None = None
+    competition_id: int | None = None
+
+class DomainETFCreate(DomainETFBase):
+    positions: list[tuple[str, int]]  # list of (domain_name, weight_bps)
+
+class DomainETF(DomainETFBase):
+    id: int
+    owner_user_id: int
+    total_shares: Decimal | None = None
+    nav_last: Decimal | None = None
+    nav_updated_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+class DomainETFPosition(BaseModel):
+    id: int
+    etf_id: int
+    domain_name: str
+    weight_bps: int
+
+    class Config:
+        from_attributes = True
+
+class DomainETFShare(BaseModel):
+    id: int
+    etf_id: int
+    user_id: int
+    shares: Decimal
+    class Config:
+        from_attributes = True
+
+class DomainETFShareFlow(BaseModel):
+    id: int
+    etf_id: int
+    user_id: int
+    flow_type: str
+    shares: Decimal
+    cash_value: Decimal
+    nav_per_share: Decimal
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class ETFListParams(BaseModel):
+    limit: int = 20
+    offset: int = 0
+    competition_id: int | None = None
+
+class ETFIssueRedeem(BaseModel):
+    shares: Decimal
+
+class ETFNavUpdate(BaseModel):
+    nav: Decimal

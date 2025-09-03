@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/Ca
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { useState, useMemo } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface Competition {
   id: number;
@@ -21,9 +22,15 @@ interface Competition {
 
 export default function CompetitionsPage(){
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'upcoming' | 'ended'>('all');
+  const [showCreate, setShowCreate] = useState(false);
   const { data: competitions, isLoading, error } = useQuery({
     queryKey: ['competitions'],
     queryFn: () => apiJson<Competition[]>('/api/v1/competitions', { headers: authHeader() }),
+  });
+  const qc = useQueryClient();
+  const createMutation = useMutation({
+    mutationFn: async (body: any) => apiJson('/api/v1/competitions', { method: 'POST', headers: { ...authHeader(), 'Content-Type':'application/json' }, body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey:['competitions']}); setShowCreate(false); }
   });
 
   const now = Date.now();
@@ -45,12 +52,13 @@ export default function CompetitionsPage(){
           <h1 className="text-3xl font-bold tracking-tight mb-2">Competitions</h1>
           <p className="text-slate-400 max-w-xl text-sm">Browse active and upcoming domain trading arenas. Sharpen your edge, optimize allocations, and climb the leaderboard.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           {(['all','active','upcoming','ended'] as const).map(s => (
             <Button key={s} variant={statusFilter===s ? 'primary':'outline'} size="sm" onClick={()=>setStatusFilter(s)}>
               {s.charAt(0).toUpperCase()+s.slice(1)}
             </Button>
           ))}
+          <Button variant="outline" size="sm" onClick={()=>setShowCreate(true)}>New Competition</Button>
         </div>
       </div>
 
@@ -105,6 +113,66 @@ export default function CompetitionsPage(){
           <div className="col-span-full text-center py-24 text-slate-500 text-sm">No competitions matching filter.</div>
         )}
       </div>
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur flex items-start justify-center pt-24 z-50">
+          <div className="bg-slate-900/90 border border-white/10 rounded-xl p-6 w-full max-w-lg space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold tracking-tight">Create Competition</h2>
+              <button onClick={()=>setShowCreate(false)} className="text-slate-400 hover:text-slate-200 text-sm">Close</button>
+            </div>
+            <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); createMutation.mutate({
+              contract_address: f.get('contract_address'),
+              chain_id: Number(f.get('chain_id'))||1,
+              name: f.get('name'),
+              description: f.get('description'),
+              start_time: f.get('start_time'),
+              end_time: f.get('end_time'),
+              entry_fee: f.get('entry_fee'),
+              rules: {}
+            });}} className="space-y-4 text-sm">
+              <div className="grid gap-3">
+                <label className="space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Name</span>
+                  <input name="name" required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" placeholder="Autumn Domain Clash" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Description</span>
+                  <textarea name="description" rows={2} className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" placeholder="Seasonal trading tournament" />
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  <label className="space-y-1">
+                    <span className="text-xs uppercase tracking-wide text-slate-400">Start</span>
+                    <input name="start_time" type="datetime-local" required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs uppercase tracking-wide text-slate-400">End</span>
+                    <input name="end_time" type="datetime-local" required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" />
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <label className="space-y-1">
+                    <span className="text-xs uppercase tracking-wide text-slate-400">Chain ID</span>
+                    <input name="chain_id" type="number" defaultValue={1} className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs uppercase tracking-wide text-slate-400">Entry Fee (ETH)</span>
+                    <input name="entry_fee" type="text" placeholder="0.01" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" />
+                  </label>
+                </div>
+                <label className="space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">Contract Address</span>
+                  <input name="contract_address" required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm font-mono" placeholder="0x..." />
+                </label>
+              </div>
+              {createMutation.error && <div className="text-red-400 text-xs">Failed to create.</div>}
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" size="sm" onClick={()=>setShowCreate(false)}>Cancel</Button>
+                <Button type="submit" size="sm" disabled={createMutation.isPending}>{createMutation.isPending ? 'Creating...' : 'Create'}</Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

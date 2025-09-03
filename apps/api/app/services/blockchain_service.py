@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 from web3 import Web3
 from eth_account import Account
 import os
@@ -18,25 +18,51 @@ class BlockchainService:
         """
         self.web3: Optional[Web3] = None
         self.fallback_web3: Optional[Web3] = None
+        self._init_error: Optional[str] = None
+        self._attempted = False
+        self._init()
+
+    def _init(self):
+        if self._attempted:
+            return
+        self._attempted = True
+        chain_id = settings.doma_testnet_chain_id
+        primary = settings.doma_rpc_url_primary
+        fallback = settings.doma_rpc_url_fallback
         try:
-            if settings.doma_testnet_chain_id and settings.doma_rpc_url_primary:
-                self.web3 = Web3(Web3.HTTPProvider(settings.doma_rpc_url_primary))
-                if settings.doma_rpc_url_fallback:
-                    self.fallback_web3 = Web3(Web3.HTTPProvider(settings.doma_rpc_url_fallback))
+            if not chain_id:
+                self._init_error = "DOMA_TESTNET_CHAIN_ID missing or empty"
+                return
+            if not primary:
+                self._init_error = "DOMA_TESTNET_RPC_URL_PRIMARY missing or empty"
+                return
+            self.web3 = Web3(Web3.HTTPProvider(primary))
+            if fallback:
+                self.fallback_web3 = Web3(Web3.HTTPProvider(fallback))
         except Exception as e:
-            # Defer failure to first usage; log minimally to stdout for container logs.
-            print(f"[BlockchainService] Deferred initialization error: {e}")
+            self._init_error = f"Initialization exception: {e}"
+
+    def ensure_initialized(self) -> bool:
+        if self.web3:
+            return True
+        if not self._attempted:
+            self._init()
+        if not self.web3 and not self._init_error:
+            # Retry once in case envs became available later
+            self._attempted = False
+            self._init()
+        return self.web3 is not None
 
     async def get_contract_instance(self, contract_address: str, abi: list) -> Contract:
         """Get a contract instance for interaction"""
         if not self.web3:
-            raise Exception("Blockchain connection not configured")
+            raise Exception("Blockchain connection not configured (web3 not initialized)")
         return self.web3.eth.contract(address=contract_address, abi=abi)
 
     async def get_transaction_receipt(self, tx_hash: str) -> Optional[AttributeDict]:
         """Get transaction receipt"""
         if not self.web3:
-            raise Exception("Blockchain connection not configured")
+            raise Exception("Blockchain connection not configured (web3 not initialized)")
         try:
             return self.web3.eth.get_transaction_receipt(tx_hash)
         except Exception as e:
@@ -46,10 +72,10 @@ class BlockchainService:
     async def estimate_gas(self, transaction: dict) -> int:
         """Estimate gas for a transaction"""
         if not self.web3:
-            raise Exception("Blockchain connection not configured")
+            raise Exception("Blockchain connection not configured (web3 not initialized)")
         return self.web3.eth.estimate_gas(transaction)
 
-    async def listen_for_events(self, contract_address: str, abi: list, event_name: str, from_block: int = 'latest'):
+    async def listen_for_events(self, contract_address: str, abi: list, event_name: str, from_block: Union[int, str] = 'latest'):
         """Listen for contract events"""
         contract = await self.get_contract_instance(contract_address, abi)
         event_filter = contract.events[event_name].create_filter(fromBlock=from_block)

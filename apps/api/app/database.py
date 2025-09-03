@@ -10,6 +10,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+# In local environment, create tables automatically so tests/dev don't require migrations.
+if settings.app_env == "local":
+    # Import models to register metadata
+    from app.models import database as models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+
 def get_db():
     db = SessionLocal()
     try:

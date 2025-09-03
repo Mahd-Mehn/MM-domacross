@@ -25,6 +25,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <nav className="hidden md:flex items-center gap-1 text-sm font-medium">
                   <Link href="/competitions" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Competitions</Link>
                   <Link href="/dashboard" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Dashboard</Link>
+                  <Link href="/etfs" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">ETFs</Link>
                   <Link href="/strategies" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Strategies</Link>
                   <Link href="/settings" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Settings</Link>
                 </nav>

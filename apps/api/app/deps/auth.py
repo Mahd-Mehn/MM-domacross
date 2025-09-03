@@ -36,3 +36,34 @@ def get_current_user(
         db.commit()
         db.refresh(user)
     return user
+
+
+def get_current_address_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> str | None:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    token = credentials.credentials
+    try:
+        claims = verify_token(token)
+    except Exception:
+        return None
+    sub = claims.get("sub")
+    if not sub:
+        return None
+    return str(sub).lower()
+
+
+def get_current_user_optional(
+    db: Session = Depends(get_db),
+    address: str | None = Depends(get_current_address_optional),
+) -> User | None:
+    if address is None:
+        return None
+    user = db.query(User).filter(User.wallet_address == address).first()
+    if not user:
+        user = User(wallet_address=address)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user

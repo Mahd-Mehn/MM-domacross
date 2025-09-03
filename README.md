@@ -223,3 +223,48 @@ Local-first dev on your VM with an AWS Terraform skeleton for later migration.
 ## AWS (Later)
 - See infra/terraform/ for skeleton modules (ECS/RDS/Redis/ALB/WAF/Secrets).
 - Provide variables via tfvars and AWS credentials.
+
+## Marketplace Data & Hooks
+
+React Query hooks implemented (apps/web/lib/hooks):
+
+- useDomain(name): consolidated domain + top listings/offers + latest valuation
+- useListings(name), useOffers(name), useValuation(name): focused slices
+- useValuationBatch(domains[]): batch valuation POST /api/v1/valuation/batch
+- useCurrencies(): static currency metadata (extensible)
+- useOrderbook(name): pulls live orderbook (SDK if available) every 15–20s
+- useBuyDomain(), useMakeOffer(): trading mutations (SDK-first, API fallback placeholders)
+
+Component: DomainMarketPanel (apps/web/components) demonstrates integration; navigate to /market/{domainName}.
+
+Next steps: backend trading endpoints, real fee preview integration, websocket push for deltas.
+
+### Schema Update (Marketplace Orders)
+Added `external_order_id` columns to `listings` and `offers` for SDK order ID mapping. Create a new Alembic migration:
+1. alembic revision -m "add external order ids" --autogenerate
+2. alembic upgrade head
+
+### Listing Expiry & Cleanup
+Listings now include an `expires_at` timestamp (auto-set using `LISTING_TTL_DAYS`, default 30).
+
+Admin-only endpoint to deactivate expired listings:
+
+`DELETE /api/v1/market/expired/listings`
+
+### Offer Acceptance
+Accept an existing (active) offer via:
+
+`POST /api/v1/market/accept-offer` with `offer_id` or `external_order_id`.
+
+Frontend hook: `useAcceptOffer()` (gracefully falls back if SDK `acceptOffer` not yet available).
+
+### Trade Attribution
+Trades recorded from buys and accepted offers now only attribute to participants active within competitions whose time window currently includes the trade timestamp. This avoids polluting historical or future competitions with out-of-window trades.
+
+Environment variable:
+
+`LISTING_TTL_DAYS=30`  # adjust to shorten or lengthen default listing lifetime.
+
+Run new migration adding `expires_at` to listings:
+1. alembic revision -m "add listing expires_at" --autogenerate
+2. alembic upgrade head
