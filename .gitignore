@@ -1,0 +1,40 @@
+# Node
+node_modules/
+.pnpm-store/
+.next/
+.npm/
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+# jwtRS256.pem
+# jwtRS256.pub.pem
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# Docker
+*.log
+.docker/
+NOTES
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+artifacts/
+typechain-types/
+jwtRS256.pem
+jwtRS256.pub.pem
+cache/
