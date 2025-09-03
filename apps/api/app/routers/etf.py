@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.database import DomainETF as DomainETFModel, DomainETFPosition as DomainETFPositionModel, Domain as DomainModel, DomainETFShare as DomainETFShareModel, Participant as ParticipantModel, Competition as CompetitionModel
-from app.schemas.competition import DomainETFCreate, DomainETF, DomainETFPosition, DomainETFShare, ETFIssueRedeem, ETFNavUpdate, DomainETFShareFlow
+from app.schemas.competition import DomainETFCreate, DomainETF, DomainETFPosition, DomainETFShare, ETFIssueRedeem, ETFNavUpdate, DomainETFShareFlow, DomainETFRedemptionIntent
 from app.deps.auth import get_current_user
 from app.models.database import User as UserModel
 from datetime import datetime, timezone
 from decimal import Decimal
+from datetime import timedelta
 
 router = APIRouter()
 
@@ -171,6 +172,50 @@ def redeem_shares(etf_id: int, payload: ETFIssueRedeem, cash_received: Decimal |
     db.refresh(holding)
     return holding
 
+@router.post('/etfs/{etf_id}/redeem/intent', response_model=DomainETFRedemptionIntent)
+def create_redemption_intent(etf_id: int, payload: ETFIssueRedeem, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Creates an intent capturing current nav per share; execution happens after on-chain listing settlement off-platform
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id == etf_id).first()
+    if not etf: raise HTTPException(status_code=404, detail='ETF not found')
+    holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()
+    if not holding or holding.shares < payload.shares:  # type: ignore
+        raise HTTPException(status_code=400, detail='Insufficient shares')
+    # snapshot nav per share. Allow zero NAV; only reject if nav is None OR total_shares is None/zero
+    if etf.nav_last is None or etf.total_shares is None or etf.total_shares == 0:
+        raise HTTPException(status_code=400, detail='NAV unavailable')
+    nav_ps = (Decimal(etf.nav_last or 0) / Decimal(etf.total_shares or 1)).quantize(Decimal('0.00000001'))
+    from app.models.database import DomainETFRedemptionIntent as Intent
+    intent = Intent(etf_id=etf.id, user_id=user.id, shares=payload.shares, nav_per_share_snapshot=nav_ps)
+    db.add(intent)
+    db.commit()
+    db.refresh(intent)
+    return intent
+
+@router.post('/etfs/{etf_id}/redeem/execute/{intent_id}', response_model=DomainETFShare)
+def execute_redemption_intent(etf_id: int, intent_id: int, tx_hash: str | None = None, payload: dict | None = Body(default=None), db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Called after SDK-driven domain liquidation completed (frontend orchestrates) to burn shares and record flow
+    from app.models.database import DomainETFRedemptionIntent as Intent, DomainETFShareFlow as Flow
+    intent = db.query(Intent).filter(Intent.id == intent_id, Intent.etf_id == etf_id, Intent.user_id == user.id, Intent.executed_at == None).first()  # noqa: E711
+    if not intent: raise HTTPException(status_code=404, detail='Intent not found or already executed')
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id == etf_id).first()
+    if not etf: raise HTTPException(status_code=404, detail='ETF not found')
+    holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()
+    if not holding or holding.shares < intent.shares:  # type: ignore
+        raise HTTPException(status_code=400, detail='Insufficient shares')
+    # Burn shares at snapshotted nav
+    holding.shares = holding.shares - intent.shares  # type: ignore
+    etf.total_shares = (etf.total_shares or Decimal(0)) - intent.shares  # type: ignore
+    intent.executed_at = datetime.now(timezone.utc)
+    settlement_order_ids = None
+    if payload and isinstance(payload, dict):
+        settlement_order_ids = payload.get('settlement_order_ids')
+    flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='REDEEM', shares=intent.shares, cash_value=intent.shares * intent.nav_per_share_snapshot, nav_per_share=intent.nav_per_share_snapshot, settlement_order_ids=settlement_order_ids)
+    db.add(flow)
+    db.add(intent)
+    db.commit()
+    db.refresh(holding)
+    return holding
+
 @router.post('/competitions/{competition_id}/seed-winner-etf', response_model=DomainETF)
 def seed_winner_etf(competition_id: int, symbol: str, name: str, auto_positions: bool = True, top_n: int = 10, creation_unit_size: Decimal | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
     # Admin only for seeding
@@ -239,3 +284,10 @@ def nav_per_share(etf_id: int, db: Session = Depends(get_db)):
 def list_flows(etf_id: int, limit: int = 50, offset: int = 0, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
     from app.models.database import DomainETFShareFlow as Flow
     return db.query(Flow).filter(Flow.etf_id == etf_id).order_by(Flow.created_at.desc()).limit(min(limit,200)).offset(offset).all()
+
+@router.get('/etfs/{etf_id}/my/shares')
+def my_shares(etf_id: int, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()
+    if not holding:
+        return { 'etf_id': etf_id, 'shares': '0', 'lock_until': None }
+    return { 'etf_id': etf_id, 'shares': str(holding.shares), 'lock_until': holding.lock_until.isoformat() if holding.lock_until else None }

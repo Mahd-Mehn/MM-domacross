@@ -146,4 +146,15 @@ class DomainETFShareFlow(Base):
     shares = Column(Numeric(24,8), nullable=False)
     cash_value = Column(Numeric(24,8), nullable=False)
     nav_per_share = Column(Numeric(24,8), nullable=False)
+    settlement_order_ids = Column(JSON, nullable=True)  # array of external order ids used in redemption settlement
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+class DomainETFRedemptionIntent(Base):
+    __tablename__ = "domain_etf_redemption_intents"
+    id = Column(Integer, primary_key=True, index=True)
+    etf_id = Column(Integer, ForeignKey('domain_etfs.id'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    shares = Column(Numeric(24,8), nullable=False)
+    nav_per_share_snapshot = Column(Numeric(24,8), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    executed_at = Column(DateTime(timezone=True), nullable=True, index=True)

@@ -124,6 +124,7 @@ class DomainETFShareFlow(BaseModel):
     shares: Decimal
     cash_value: Decimal
     nav_per_share: Decimal
+    settlement_order_ids: list[str] | None = None
     created_at: datetime
     class Config:
         from_attributes = True
@@ -138,3 +139,14 @@ class ETFIssueRedeem(BaseModel):
 
 class ETFNavUpdate(BaseModel):
     nav: Decimal
+
+class DomainETFRedemptionIntent(BaseModel):
+    id: int
+    etf_id: int
+    user_id: int
+    shares: Decimal
+    nav_per_share_snapshot: Decimal
+    created_at: datetime
+    executed_at: datetime | None = None
+    class Config:
+        from_attributes = True

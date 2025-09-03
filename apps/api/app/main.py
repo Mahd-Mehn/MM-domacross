@@ -179,22 +179,28 @@ def metrics():
     # Snapshot metrics require quick DB count (lightweight)
     try:
         from app.database import SessionLocal
-        from app.models.database import OrderbookSnapshot, Valuation, Listing, Offer, Domain
-        session = SessionLocal()
-        lines.append(f"orderbook_snapshots_total {session.query(OrderbookSnapshot).count()}")
-        lines.append(f"valuations_total {session.query(Valuation).count()}")
-        lines.append(f"listings_total {session.query(Listing).count()}")
-        lines.append(f"offers_total {session.query(Offer).count()}")
-        lines.append(f"domains_total {session.query(Domain).count()}")
-        # Reconciliation timestamp
+        from app.models.database import OrderbookSnapshot, Valuation, Listing, Offer, Domain, DomainETF
         from app.services.reconciliation_service import reconciliation_service as rs
-        if rs.last_run:
-            lines.append(f"reconciliation_last_run {int(rs.last_run.timestamp())}")
         from app.services.nav_service import nav_service as ns
-        if ns.last_run:
-            lines.append(f"nav_last_run {int(ns.last_run.timestamp())}")
-        lines.append(f"nav_total_recomputes {ns.total_recomputes}")
-        session.close()
+        session = SessionLocal()
+        try:
+            lines.append(f"orderbook_snapshots_total {session.query(OrderbookSnapshot).count()}")
+            lines.append(f"valuations_total {session.query(Valuation).count()}")
+            lines.append(f"listings_total {session.query(Listing).count()}")
+            lines.append(f"offers_total {session.query(Offer).count()}")
+            lines.append(f"domains_total {session.query(Domain).count()}")
+            if rs.last_run:
+                lines.append(f"reconciliation_last_run {int(rs.last_run.timestamp())}")
+            if ns.last_run:
+                lines.append(f"nav_last_run {int(ns.last_run.timestamp())}")
+            lines.append(f"nav_total_recomputes {ns.total_recomputes}")
+            now_ts = int(__import__('time').time())
+            for eid, nav_ts in session.query(DomainETF.id, DomainETF.nav_updated_at).all():
+                if nav_ts:
+                    age = max(0, now_ts - int(nav_ts.timestamp()))
+                    lines.append(f"etf_nav_age_seconds{{etf_id=\"{eid}\"}} {age}")
+        finally:
+            session.close()
     except Exception:
         lines.append("metrics_collection_error 1")
     return "\n".join(lines) + "\n"
