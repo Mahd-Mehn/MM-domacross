@@ -2,6 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiJson, authHeader } from "../../lib/api";
+import { Metric } from "../../components/ui/Metric";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
+import { Badge } from "../../components/ui/Badge";
+import Link from 'next/link';
 
 interface UserPortfolio {
   total_value: string;
@@ -36,91 +40,87 @@ export default function DashboardPage() {
   ];
 
   return (
-    <main>
-      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
-
-      {/* Portfolio Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <h3 className="text-lg font-semibold mb-2">Total Portfolio Value</h3>
-          <p className="text-3xl font-bold text-green-600">{mockPortfolio.total_value} ETH</p>
-        </div>
-
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <h3 className="text-lg font-semibold mb-2">Active Competitions</h3>
-          <p className="text-3xl font-bold text-blue-600">{mockPortfolio.competitions_participating}</p>
-        </div>
-
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <h3 className="text-lg font-semibold mb-2">Domains Owned</h3>
-          <p className="text-3xl font-bold text-purple-600">{mockPortfolio.domains_owned}</p>
+    <main className="space-y-12">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Dashboard</h1>
+          <p className="text-slate-400 text-sm max-w-xl">Portfolio performance, competition positions and recent execution activity.</p>
         </div>
       </div>
 
-      {/* Active Competitions */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4">Your Competitions</h2>
+      <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Portfolio Value" value={parseFloat(mockPortfolio.total_value)} unit=" ETH" delta={12} />
+        <Metric label="Active Competitions" value={mockPortfolio.competitions_participating} />
+        <Metric label="Domains Owned" value={mockPortfolio.domains_owned} />
+        <Metric label="Win Rate" value="--" />
+      </section>
 
-        {mockCompetitions.length > 0 ? (
-          <div className="space-y-4">
-            {mockCompetitions.map((competition) => (
-              <div key={competition.id} className="bg-white border rounded-lg p-6 shadow-sm">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-xl font-semibold">{competition.name}</h3>
-                    <span className={`inline-block px-2 py-1 rounded text-sm ${
-                      competition.status === 'active'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {competition.status}
-                    </span>
-                  </div>
-                  {competition.rank && (
-                    <div className="text-right">
-                      <div className="text-sm text-gray-500">Current Rank</div>
-                      <div className="text-2xl font-bold">#{competition.rank}</div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm text-gray-500">Portfolio Value</div>
-                    <div className="text-lg font-semibold">{competition.portfolio_value} ETH</div>
-                  </div>
-                  <div>
-                    <button className="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-                      View Details
-                    </button>
-                  </div>
-                </div>
+      <section className="grid lg:grid-cols-3 gap-10">
+        <div className="lg:col-span-2 space-y-8">
+          <Card className="glass-dark">
+            <CardHeader className="mb-2">
+              <div className="flex items-center justify-between w-full">
+                <CardTitle>Your Competitions</CardTitle>
+                <Link href="/competitions" className="text-xs text-brand-300 hover:text-brand-200">Browse All</Link>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-gray-50 border rounded-lg p-8 text-center">
-            <h3 className="text-lg font-semibold mb-2">No Active Competitions</h3>
-            <p className="text-gray-600 mb-4">
-              Join a competition to start trading domains and building your portfolio!
-            </p>
-            <a
-              href="/competitions"
-              className="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 inline-block"
-            >
-              Browse Competitions
-            </a>
-          </div>
-        )}
-      </div>
+              <CardDescription>Real-time standing across active arenas.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {mockCompetitions.length>0 ? mockCompetitions.map(c => (
+                <div key={c.id} className="surface rounded-lg px-5 py-4 flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="flex-1">
+                    <div className="font-medium text-white tracking-tight flex items-center gap-2">{c.name} <Badge variant={c.status==='active'?'success':'neutral'}>{c.status}</Badge></div>
+                    <div className="text-xs text-slate-400 mt-1">Portfolio Value <span className="text-slate-200 font-semibold">{c.portfolio_value} ETH</span></div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    {c.rank && <div className="text-center"><div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Rank</div><div className="text-xl font-semibold">#{c.rank}</div></div>}
+                    <Link href={`/competitions/${c.id}`} className="text-xs text-brand-300 hover:text-brand-200 font-medium">Details →</Link>
+                  </div>
+                </div>
+              )) : (
+                <div className="text-slate-500 text-sm py-12 text-center">No active competitions. <Link href="/competitions" className="text-brand-300 hover:text-brand-200">Join one now</Link>.</div>
+              )}
+            </CardContent>
+          </Card>
 
-      {/* Recent Activity */}
-      <div>
-        <h2 className="text-2xl font-bold mb-4">Recent Activity</h2>
-        <div className="bg-white border rounded-lg p-6 shadow-sm">
-          <p className="text-gray-500">No recent activity yet. Start trading to see your history here!</p>
+          <Card className="glass-dark">
+            <CardHeader>
+              <CardTitle>Recent Activity</CardTitle>
+              <CardDescription>Latest portfolio executions and domain events.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-slate-500 text-sm py-6 text-center">No recent activity yet. Execute trades to populate history.</div>
+            </CardContent>
+          </Card>
         </div>
-      </div>
+        <div className="space-y-8">
+          <Card className="glass-dark">
+            <CardHeader>
+              <CardTitle>Performance Snapshot</CardTitle>
+              <CardDescription>High-level metrics (mocked).</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-4 text-xs">
+              <div className="surface rounded-lg p-3"><div className="text-slate-400 mb-1">Avg Hold (d)</div><div className="text-slate-200 font-medium">--</div></div>
+              <div className="surface rounded-lg p-3"><div className="text-slate-400 mb-1">Turnover</div><div className="text-slate-200 font-medium">--</div></div>
+              <div className="surface rounded-lg p-3"><div className="text-slate-400 mb-1">Realized PnL</div><div className="text-green-400 font-medium">--</div></div>
+              <div className="surface rounded-lg p-3"><div className="text-slate-400 mb-1">Unrealized PnL</div><div className="text-slate-200 font-medium">--</div></div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-dark">
+            <CardHeader>
+              <CardTitle>Upcoming Features</CardTitle>
+              <CardDescription>Planned enhancements.</CardDescription>
+            </CardHeader>
+            <CardContent className="text-xs text-slate-400 space-y-2">
+              <div>• Live on-chain event streaming</div>
+              <div>• Advanced valuation models</div>
+              <div>• Strategy backtesting</div>
+              <div>• Social leader insights</div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
     </main>
   );
 }

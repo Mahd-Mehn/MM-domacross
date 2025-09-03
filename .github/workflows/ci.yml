@@ -47,8 +47,7 @@ jobs:
       - name: Install contracts deps
         working-directory: contracts
         run: |
-          npm i -g pnpm@9.4.0
-          pnpm install
+          npm install
       - name: Compile
         working-directory: contracts
-        run: pnpm exec hardhat compile
+        run: npx hardhat compile

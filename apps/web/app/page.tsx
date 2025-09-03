@@ -1,133 +1,86 @@
 import Link from "next/link";
+import { Button } from "../components/ui/Button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/Card";
+import { Badge } from "../components/ui/Badge";
 
-export default function Home() {
+const steps = [
+  { title: 'Connect Wallet', desc: 'Link your Web3 wallet to get started' },
+  { title: 'Join Competition', desc: 'Choose a competition and pay the entry fee' },
+  { title: 'Trade Domains', desc: 'Buy and sell tokenized domains strategically' },
+  { title: 'Win Prizes', desc: 'Top performers share the prize pool' }
+];
+
+const features = [
+  { emoji: '🏆', title: 'Competitive Trading', desc: 'Time-bound competitions with dynamic leaderboards and prize pools.' },
+  { emoji: '🌐', title: 'Cross-Chain Support', desc: 'Seamless multi-chain domain trading powered by Doma infrastructure.' },
+  { emoji: '📊', title: 'Advanced Analytics', desc: 'Granular performance metrics, historical actions and valuation trends.' }
+];
+
+export default function Home(){
   return (
-    <main className="min-h-screen">
-      {/* Hero Section */}
-      <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-20">
-        <div className="max-w-6xl mx-auto px-6 text-center">
-          <h1 className="text-5xl font-bold mb-6">
-            Welcome to DomaCross
+    <div className="space-y-32">
+      {/* HERO */}
+      <section className="relative hero-bg rounded-3xl overflow-hidden border border-white/10 shadow-[0_0_40px_-10px_rgba(29,117,255,0.4)]">
+        <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_30%_50%,rgba(123,92,255,0.4),transparent_60%)]" />
+        <div className="relative px-6 md:px-16 py-32 text-center max-w-5xl mx-auto">
+          <Badge variant="info" glow className="mb-6">Cross-Chain Domain Trading Arena</Badge>
+          <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight leading-tight mb-8 gradient-text">
+            Compete. Strategize. Dominate Domains.
           </h1>
-          <p className="text-xl mb-8 max-w-2xl mx-auto">
-            The premier platform for cross-chain domain trading competitions.
-            Test your skills, build your portfolio, and compete with traders worldwide.
+          <p className="text-xl text-slate-300 max-w-3xl mx-auto mb-10">
+            DomaCross turns decentralized domain trading into a real-time competitive sport. Prove your edge across chains, optimize portfolio velocity, and rise to the top.
           </p>
-          <div className="space-x-4">
-            <Link
-              href="/competitions"
-              className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
-            >
-              Browse Competitions
-            </Link>
-            <Link
-              href="/dashboard"
-              className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-blue-600 transition-colors"
-            >
-              View Dashboard
-            </Link>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/competitions"><Button size="lg" className="shadow-glow" shimmer>Browse Competitions</Button></Link>
+            <Link href="/dashboard"><Button size="lg" variant="outline">View Dashboard</Button></Link>
+            <Link href="/strategies"><Button size="lg" variant="ghost">Strategy Sharing</Button></Link>
+          </div>
+          <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-6 text-left">
+            {steps.map((s,i)=> (
+              <div key={s.title} className="glass-dark rounded-xl p-5 relative">
+                <div className="text-sm text-slate-400 mb-2 flex items-center gap-2"><span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-500/20 text-brand-300 text-xs font-semibold">{i+1}</span> Step</div>
+                <div className="font-semibold text-white mb-1 tracking-tight">{s.title}</div>
+                <div className="text-slate-400 text-sm leading-relaxed">{s.desc}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-16 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center mb-12">Why Choose DomaCross?</h2>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white p-8 rounded-lg shadow-sm">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                <span className="text-blue-600 text-2xl">🏆</span>
-              </div>
-              <h3 className="text-xl font-semibold mb-3">Competitive Trading</h3>
-              <p className="text-gray-600">
-                Join time-bound competitions where traders compete for the highest portfolio value.
-                Win prizes and climb the leaderboards.
-              </p>
-            </div>
-
-            <div className="bg-white p-8 rounded-lg shadow-sm">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                <span className="text-green-600 text-2xl">🌐</span>
-              </div>
-              <h3 className="text-xl font-semibold mb-3">Cross-Chain Support</h3>
-              <p className="text-gray-600">
-                Trade domains across multiple blockchains seamlessly.
-                DomaCross integrates with Doma's multi-chain infrastructure.
-              </p>
-            </div>
-
-            <div className="bg-white p-8 rounded-lg shadow-sm">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                <span className="text-purple-600 text-2xl">📊</span>
-              </div>
-              <h3 className="text-xl font-semibold mb-3">Advanced Analytics</h3>
-              <p className="text-gray-600">
-                Track your performance with detailed analytics, portfolio insights,
-                and trading history across all competitions.
-              </p>
-            </div>
+      {/* FEATURES */}
+      <section>
+        <div className="max-w-6xl mx-auto px-2 md:px-0">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold tracking-tight mb-4">Why Choose <span className="gradient-text">DomaCross</span>?</h2>
+            <p className="text-slate-400 text-lg max-w-2xl mx-auto">Purpose-built for speed, strategy and composability across domain economies.</p>
+          </div>
+          <div className="grid gap-8 md:grid-cols-3">
+            {features.map(f => (
+              <Card key={f.title} className="glass-dark">
+                <CardHeader>
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-500/30 to-accent/30 flex items-center justify-center text-2xl">
+                    {f.emoji}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <CardTitle className="mb-2">{f.title}</CardTitle>
+                  <CardDescription>{f.desc}</CardDescription>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="py-16">
-        <div className="max-w-6xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center mb-12">How It Works</h2>
-
-          <div className="grid md:grid-cols-4 gap-8">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
-                1
-              </div>
-              <h3 className="text-lg font-semibold mb-2">Connect Wallet</h3>
-              <p className="text-gray-600">Link your Web3 wallet to get started</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
-                2
-              </div>
-              <h3 className="text-lg font-semibold mb-2">Join Competition</h3>
-              <p className="text-gray-600">Choose a competition and pay the entry fee</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
-                3
-              </div>
-              <h3 className="text-lg font-semibold mb-2">Trade Domains</h3>
-              <p className="text-gray-600">Buy and sell tokenized domains strategically</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
-                4
-              </div>
-              <h3 className="text-lg font-semibold mb-2">Win Prizes</h3>
-              <p className="text-gray-600">Top performers share the prize pool</p>
-            </div>
-          </div>
+      {/* CTA */}
+      <section className="relative rounded-3xl overflow-hidden border border-white/10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 py-24 px-6 md:px-16">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(29,117,255,0.35),transparent_60%)]" />
+        <div className="relative max-w-4xl mx-auto text-center">
+          <h2 className="text-4xl font-bold mb-6 tracking-tight">Ready to Start Trading?</h2>
+            <p className="text-slate-400 text-lg mb-10">Enter the arena, execute high-conviction domain plays, and capture the upside.</p>
+            <Link href="/competitions"><Button size="lg" className="shadow-glow" shimmer>Get Started</Button></Link>
         </div>
       </section>
-
-      {/* CTA Section */}
-      <section className="bg-gray-900 text-white py-16">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold mb-4">Ready to Start Trading?</h2>
-          <p className="text-xl mb-8 text-gray-300">
-            Join the competitive domain trading revolution today.
-          </p>
-          <Link
-            href="/competitions"
-            className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-          >
-            Get Started
-          </Link>
-        </div>
-      </section>
-    </main>
+    </div>
   );
 }

@@ -30,12 +30,10 @@ contract ValuationOracle is Ownable {
         return domainRarityScores[_domainTokenAddress];
     }
 
-    // Calculate price based on rarity score and market data
-    function calculatePriceWithRarity(address _domainTokenAddress, uint256 _basePrice) external view returns (uint256) {
-        uint256 rarityScore = domainRarityScores[_domainTokenAddress];
-        if (rarityScore == 0) return _basePrice;
-        // Simple multiplier based on rarity (higher score = higher multiplier)
-        uint256 multiplier = 100 + (rarityScore / 10); // e.g., score 100 = 110% of base price
-        return (_basePrice * multiplier) / 100;
+    // Calculate price based on outstanding orders
+    function calculatePriceFromOrders(address _domainTokenAddress, uint256 _basePrice) external view returns (uint256) {
+        // Placeholder: integrate with marketplace to get average order price
+        // For now, return base price
+        return _basePrice;
     }
 }

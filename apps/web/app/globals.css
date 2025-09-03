@@ -14,3 +14,50 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Design tokens layer */
+:root {
+  --ds-bg: #0b1220;
+  --ds-bg-alt: #121c2e;
+  --ds-surface: #162132;
+  --ds-surface-alt: #1f2e44;
+  --ds-text: #e2e8f0;
+  --ds-text-dim: #94a3b8;
+  --ds-accent: #1d75ff;
+  --ds-accent-glow: 29 117 255;
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 18px;
+  --ds-gradient-hero: radial-gradient(circle at 25% 15%, rgba(29,117,255,0.45), transparent 60%), radial-gradient(circle at 75% 55%, rgba(123,92,255,0.35), transparent 65%), linear-gradient(145deg, #0b1220 0%, #132034 60%, #0b1220 100%);
+}
+
+html, body { background: var(--ds-bg); color: var(--ds-text); }
+
+.prose-invert a { color: var(--ds-accent); }
+
+/* Scrollbar styling */
+* { scrollbar-width: thin; scrollbar-color: #1d75ff #111a29; }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: #0f1826; }
+::-webkit-scrollbar-thumb { background: linear-gradient(#1d75ff,#7b5cff); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(#559bff,#9b7dff); }
+
+.gradient-text { @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-400 via-accent to-brand-600; }
+.card { @apply rounded-xl bg-slate-800/40 border border-white/5 shadow-glow hover:shadow-brand transition-shadow; }
+.pill { @apply rounded-full px-3 py-1 text-xs font-medium bg-slate-700/60 text-slate-200 tracking-wide; }
+.btn-primary { @apply relative inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-brand-500 to-accent text-white font-semibold px-5 py-2.5 shadow-brand hover:from-brand-400 hover:to-accent focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-400 disabled:opacity-60 disabled:cursor-not-allowed; }
+.btn-outline { @apply inline-flex items-center gap-2 rounded-lg border border-slate-600 text-slate-200 hover:border-brand-400 hover:text-white px-5 py-2.5; }
+.surface { @apply bg-slate-800/50 border border-slate-700/70 backdrop-blur rounded-xl; }
+.meter { @apply h-2 w-full rounded-full bg-slate-700 overflow-hidden relative; }
+.meter > span { @apply absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-500 to-accent; }
+
+/* Hero background utility */
+.hero-bg { background: var(--ds-gradient-hero); position: relative; }
+.hero-bg:before { content:''; position:absolute; inset:0; background:radial-gradient(circle at 60% 40%, rgba(255,255,255,0.04), transparent 70%); }
+
+/* Animated shine effect */
+.shine { position: relative; overflow: hidden; }
+.shine:after { content:''; position:absolute; inset:0; background: linear-gradient(120deg, transparent, rgba(255,255,255,0.25), transparent); transform: translateX(-100%); animation: shine 3.5s infinite; }
+
+@keyframes shine { to { transform: translateX(100%); } }
+

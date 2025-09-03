@@ -1,12 +1,18 @@
 # syntax=docker/dockerfile:1
-FROM node:20-alpine AS base
+FROM node:20-alpine
 WORKDIR /app
+RUN apk add --no-cache curl
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 COPY package.json pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 RUN pnpm install --prefer-offline
 COPY . .
+RUN chown -R nextjs:nodejs /app
 WORKDIR /app/apps/web
+USER nextjs
 RUN pnpm build || true
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000 || exit 1
 CMD ["pnpm", "dev"]

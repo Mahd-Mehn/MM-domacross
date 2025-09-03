@@ -9,6 +9,7 @@ from app.schemas.competition import (
     CompetitionWithLeaderboard,
     LeaderboardEntry,
     PortfolioUpdate,
+    Participant as ParticipantSchema,
 )
 from datetime import datetime, timezone
 from app.deps.auth import get_current_user
@@ -68,7 +69,11 @@ async def get_competition(competition_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/competitions", response_model=Competition)
-async def create_competition(competition: CompetitionCreate, db: Session = Depends(get_db)):
+async def create_competition(
+    competition: CompetitionCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     db_competition = CompetitionModel(**competition.model_dump())
     db.add(db_competition)
     db.commit()
@@ -112,6 +117,51 @@ async def join_competition(
     db.commit()
     return competition
 
+
+@router.get("/competitions/{competition_id}/participants", response_model=List[ParticipantSchema])
+async def list_participants(competition_id: int, db: Session = Depends(get_db)):
+    competition = db.query(CompetitionModel).filter(CompetitionModel.id == competition_id).first()
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+
+    participants = (
+        db.query(ParticipantModel)
+        .filter(ParticipantModel.competition_id == competition_id)
+        .all()
+    )
+    return participants
+
+
+@router.get("/competitions/{competition_id}/leaderboard", response_model=List[LeaderboardEntry])
+async def get_competition_leaderboard(competition_id: int, db: Session = Depends(get_db)):
+    competition = db.query(CompetitionModel).filter(CompetitionModel.id == competition_id).first()
+    if not competition:
+        raise HTTPException(status_code=404, detail="Competition not found")
+
+    leaderboard_query = (
+        db.query(
+            ParticipantModel.user_id,
+            UserModel.wallet_address,
+            UserModel.username,
+            ParticipantModel.portfolio_value,
+        )
+        .join(UserModel, ParticipantModel.user_id == UserModel.id)
+        .filter(ParticipantModel.competition_id == competition_id)
+        .order_by(ParticipantModel.portfolio_value.desc())
+        .all()
+    )
+
+    leaderboard = [
+        LeaderboardEntry(
+            user_id=row.user_id,
+            wallet_address=row.wallet_address,
+            username=row.username,
+            portfolio_value=row.portfolio_value,
+            rank=index + 1,
+        )
+        for index, row in enumerate(leaderboard_query)
+    ]
+    return leaderboard
 
 @router.post("/competitions/{competition_id}/portfolio", response_model=Competition)
 async def update_portfolio(

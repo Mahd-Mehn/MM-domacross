@@ -132,71 +132,51 @@ export default function TradingInterface({ competitionId, isActive }: TradingInt
 
   if (!isActive) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-        <h3 className="text-xl font-semibold mb-2">Trading Not Available</h3>
-        <p className="text-gray-600">
-          Trading is only available during active competition periods.
-        </p>
+      <div className="glass-dark rounded-xl p-10 text-center border border-white/10">
+        <h3 className="text-xl font-semibold mb-3 tracking-tight">Trading Not Available</h3>
+        <p className="text-slate-400 text-sm max-w-md mx-auto">Trading unlocks only while the competition is active. Return once the start time threshold has been met.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="flex">
+    <div className="glass-dark rounded-xl border border-white/10 overflow-hidden">
+      <div className="flex gap-1 px-3 pt-3">
+        {([
+          {key:'market', label:'Market'},
+          {key:'portfolio', label:'My Portfolio'},
+          {key:'orders', label:'My Orders'}
+        ] as const).map(t => (
           <button
-            onClick={() => setActiveTab('market')}
-            className={`px-6 py-3 text-sm font-medium border-b-2 ${
-              activeTab === 'market'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            key={t.key}
+            onClick={()=>setActiveTab(t.key)}
+            className={`relative px-4 py-2 text-xs font-medium tracking-wide rounded-md transition-colors ${activeTab===t.key ? 'bg-brand-500/20 text-brand-200 shadow-inner':'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
           >
-            Market
+            {t.label}
+            {activeTab===t.key && <span className="absolute inset-0 rounded-md ring-1 ring-inset ring-brand-400/40" />}
           </button>
-          <button
-            onClick={() => setActiveTab('portfolio')}
-            className={`px-6 py-3 text-sm font-medium border-b-2 ${
-              activeTab === 'portfolio'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            My Portfolio
-          </button>
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`px-6 py-3 text-sm font-medium border-b-2 ${
-              activeTab === 'orders'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            My Orders
-          </button>
-        </nav>
+        ))}
       </div>
-
-      {/* Tab Content */}
-      <div className="p-6">
+      <div className="p-6 md:p-8">
         {activeTab === 'market' && (
-          <div>
-            <h3 className="text-lg font-semibold mb-4">Available Domains</h3>
-            <div className="space-y-4">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold tracking-tight">Available Domains</h3>
+              <div className="text-[10px] uppercase tracking-wide text-slate-500">Mock Data</div>
+            </div>
+            <div className="space-y-3">
               {domains.map((domain) => (
-                <div key={domain.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                  <div>
-                    <h4 className="font-semibold">{domain.name}</h4>
-                    <p className="text-sm text-gray-600">Owner: {domain.owner}</p>
+                <div key={domain.id} className="surface rounded-lg p-4 flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-white truncate">{domain.name}</h4>
+                    <p className="text-xs text-slate-400">Owner: {domain.owner}</p>
                   </div>
-                  <div className="flex items-center space-x-4">
-                    <span className="text-lg font-bold text-green-600">${domain.price}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-semibold text-green-400 bg-green-500/10 px-2 py-1 rounded">${domain.price}</span>
                     <button
                       onClick={() => handleCreateOrder(domain.id, domain.price)}
                       disabled={loading || marketplacePending}
-                      className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
+                      className="text-xs px-3 py-2 rounded-md bg-brand-500/20 hover:bg-brand-500/30 text-brand-200 disabled:opacity-50"
                     >
                       {loading || marketplacePending ? 'Creating...' : 'Create Order'}
                     </button>
@@ -206,68 +186,61 @@ export default function TradingInterface({ competitionId, isActive }: TradingInt
             </div>
           </div>
         )}
-
         {activeTab === 'portfolio' && (
-          <div>
-            <h3 className="text-lg font-semibold mb-4">My Domain Portfolio</h3>
-            <div className="space-y-4">
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold tracking-tight">My Domain Portfolio</h3>
+            <div className="space-y-3">
               {userDomains.map((domain) => (
-                <div key={domain.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                  <div>
-                    <h4 className="font-semibold">{domain.name}</h4>
-                    <p className="text-sm text-gray-600">Value: ${domain.price}</p>
+                <div key={domain.id} className="surface rounded-lg p-4 flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-white truncate">{domain.name}</h4>
+                    <p className="text-xs text-slate-400">Value: ${domain.price}</p>
                   </div>
-                  <button className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
-                    List for Sale
-                  </button>
+                  <button className="text-xs px-3 py-2 rounded-md bg-green-500/20 hover:bg-green-500/30 text-green-300">List for Sale</button>
                 </div>
               ))}
-              {userDomains.length === 0 && (
-                <p className="text-gray-500 text-center py-8">No domains in your portfolio yet.</p>
-              )}
+              {userDomains.length === 0 && (<p className="text-slate-500 text-center py-12 text-sm">No domains in your portfolio yet.</p>)}
             </div>
           </div>
         )}
-
         {activeTab === 'orders' && (
-          <div>
-            <h3 className="text-lg font-semibold mb-4">My Active Orders</h3>
-            <div className="space-y-4">
-              {userOrders.map((order) => (
-                <div key={order.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                  <div>
-                    <h4 className="font-semibold">{order.domainName}</h4>
-                    <p className="text-sm text-gray-600">Price: ${order.price}</p>
-                  </div>
-                  <button
-                    onClick={() => handleCancelOrder(order.id)}
-                    disabled={loading || marketplacePending}
-                    className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 disabled:opacity-50"
-                  >
-                    {loading || marketplacePending ? 'Cancelling...' : 'Cancel Order'}
-                  </button>
-                </div>
-              ))}
-              {userOrders.length === 0 && (
-                <p className="text-gray-500 text-center py-8">No active orders.</p>
-              )}
-            </div>
-
-            <div className="mt-8">
-              <h4 className="text-md font-semibold mb-4">Available Orders to Buy</h4>
-              <div className="space-y-4">
-                {orders.map((order) => (
-                  <div key={order.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                    <div>
-                      <h4 className="font-semibold">{order.domainName}</h4>
-                      <p className="text-sm text-gray-600">Seller: {order.seller}</p>
+          <div className="space-y-8">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight mb-4">My Active Orders</h3>
+              <div className="space-y-3">
+                {userOrders.map((order) => (
+                  <div key={order.id} className="surface rounded-lg p-4 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-white truncate">{order.domainName}</h4>
+                      <p className="text-xs text-slate-400">Price: ${order.price}</p>
                     </div>
-                    <div className="flex items-center space-x-4">
-                      <span className="text-lg font-bold text-green-600">${order.price}</span>
+                    <button
+                      onClick={() => handleCancelOrder(order.id)}
+                      disabled={loading || marketplacePending}
+                      className="text-xs px-3 py-2 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 disabled:opacity-50"
+                    >
+                      {loading || marketplacePending ? 'Cancelling...' : 'Cancel Order'}
+                    </button>
+                  </div>
+                ))}
+                {userOrders.length === 0 && (<p className="text-slate-500 text-center py-12 text-sm">No active orders.</p>)}
+              </div>
+            </div>
+            <div>
+              <h4 className="text-md font-semibold mb-4 tracking-tight">Available Orders to Buy</h4>
+              <div className="space-y-3">
+                {orders.map((order) => (
+                  <div key={order.id} className="surface rounded-lg p-4 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-white truncate">{order.domainName}</h4>
+                      <p className="text-xs text-slate-400">Seller: {order.seller}</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-semibold text-green-400 bg-green-500/10 px-2 py-1 rounded">${order.price}</span>
                       <button
                         onClick={() => handleBuyDomain(order.id)}
                         disabled={loading || marketplacePending}
-                        className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50"
+                        className="text-xs px-3 py-2 rounded-md bg-green-500/20 hover:bg-green-500/30 text-green-300 disabled:opacity-50"
                       >
                         {loading || marketplacePending ? 'Buying...' : 'Buy Now'}
                       </button>
