@@ -295,3 +295,31 @@ class ParticipantHolding(Base):
     avg_cost = Column(Numeric(24,8), nullable=True)  # average acquisition price
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
     __table_args__ = (UniqueConstraint('participant_id','domain_name', name='uq_participant_domain_holding'),)
+
+# Generic immutable audit log capturing critical state transitions (provenance layer)
+class AuditEvent(Base):
+    __tablename__ = 'audit_events'
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    entity_type = Column(String(32), nullable=False, index=True)  # e.g. ETF, FEE, REDEMPTION_INTENT
+    entity_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
+    payload = Column(JSON, nullable=True)  # canonical snapshot for merkle hashing
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+class MerkleSnapshot(Base):
+    __tablename__ = 'merkle_snapshots'
+    id = Column(Integer, primary_key=True, index=True)
+    last_event_id = Column(Integer, nullable=False, index=True)
+    merkle_root = Column(String(66), nullable=False, index=True)  # hex sha256 root
+    event_count = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    signature = Column(String(512), nullable=True)  # base64 RSA signature of root
+    anchor_tx_hash = Column(String(80), nullable=True, index=True)
+
+class MerkleAccumulator(Base):
+    __tablename__ = 'merkle_accumulator'
+    id = Column(Integer, primary_key=True, index=True)
+    level = Column(Integer, nullable=False, unique=True, index=True)
+    node_hash = Column(String(66), nullable=False)  # 0x + hex
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)

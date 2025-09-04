@@ -151,4 +151,24 @@ class BlockchainService:
         # Update DB
         pass
 
+    async def anchor_merkle_root(self, merkle_root: str) -> Optional[str]:
+        """Anchor merkle root on-chain (stub).
+
+        Returns tx hash if broadcast succeeded. In production this would submit
+        a transaction to a registry/anchor contract. For now we simulate
+        anchoring by returning a pseudo tx hash derived from root if web3 is
+        configured, else None.
+        """
+        if not self.web3:
+            return None
+        # Pseudo-hash: keccak of root string (without 0x) if possible
+        try:
+            keccak_fn = getattr(self.web3, 'keccak', None)
+            if not keccak_fn:
+                return None
+            digest = keccak_fn(text=merkle_root).hex()
+            return digest
+        except Exception:
+            return None
+
 blockchain_service = BlockchainService()

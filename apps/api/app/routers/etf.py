@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from datetime import timedelta
 from app.services.nav_service import nav_service
+from app.services.audit_service import record_audit_event
 
 router = APIRouter()
 
@@ -59,6 +60,9 @@ def create_etf(
             db.flush()
         pos = DomainETFPositionModel(etf_id=etf.id, domain_name=name_l, weight_bps=weight)
         db.add(pos)
+    db.flush()
+    # Audit after flush to have ID
+    record_audit_event(db, event_type='CREATE_ETF', entity_type='ETF', entity_id=etf.id, user_id=user.id, payload={'symbol': etf.symbol, 'name': etf.name})
     db.commit()
     db.refresh(etf)
     return etf
@@ -79,6 +83,13 @@ def get_etf(etf_id: int, db: Session = Depends(get_db)):
     if not etf:
         raise HTTPException(status_code=404, detail='ETF not found')
     return etf
+
+@router.get('/etfs/{etf_id}/is-owner')
+def is_owner(etf_id: int, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id==etf_id).first()
+    if not etf:
+        raise HTTPException(status_code=404, detail='ETF not found')
+    return { 'etf_id': etf_id, 'is_owner': etf.owner_user_id == user.id }
 
 @router.get('/etfs/{etf_id}/positions', response_model=list[DomainETFPosition])
 def get_etf_positions(etf_id: int, db: Session = Depends(get_db)):
@@ -171,6 +182,8 @@ def issue_shares(etf_id: int, payload: ETFIssueRedeem, cash_paid: Decimal | None
         if fee > 0:
             etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
             db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='ISSUE_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares)}))
+    db.flush()
+    record_audit_event(db, event_type='ISSUE', entity_type='ETF_SHARE_FLOW', entity_id=flow.id, user_id=user.id, payload={'etf_id': etf.id, 'shares': str(payload.shares), 'cash_value': str(cash_paid), 'order_ids': flow.settlement_order_ids})
     db.commit()
     db.refresh(holding)
     return holding
@@ -206,6 +219,8 @@ def redeem_shares(etf_id: int, payload: ETFIssueRedeem, cash_received: Decimal |
         if fee > 0:
             etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
             db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='REDEMPTION_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares)}))
+    db.flush()
+    record_audit_event(db, event_type='REDEEM', entity_type='ETF_SHARE_FLOW', entity_id=flow.id, user_id=user.id, payload={'etf_id': etf.id, 'shares': str(payload.shares), 'cash_value': str(cash_received), 'order_ids': flow.settlement_order_ids})
     db.commit()
     db.refresh(holding)
     return holding
@@ -228,6 +243,8 @@ def create_redemption_intent(etf_id: int, payload: ETFIssueRedeem, db: Session =
     from app.models.database import DomainETFRedemptionIntent as Intent
     intent = Intent(etf_id=etf.id, user_id=user.id, shares=payload.shares, nav_per_share_snapshot=nav_ps)
     db.add(intent)
+    db.flush()
+    record_audit_event(db, event_type='REDEMPTION_INTENT', entity_type='REDEMPTION_INTENT', entity_id=intent.id, user_id=user.id, payload={'etf_id': etf.id, 'shares': str(payload.shares), 'nav_ps': str(nav_ps)})
     db.commit()
     db.refresh(intent)
     return intent
@@ -279,6 +296,8 @@ def execute_redemption_intent(etf_id: int, intent_id: int, tx_hash: str | None =
     flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='REDEEM', shares=intent.shares, cash_value=intent.shares * intent.nav_per_share_snapshot, nav_per_share=intent.nav_per_share_snapshot, settlement_order_ids=settlement_order_ids)
     db.add(flow)
     db.add(intent)
+    db.flush()
+    record_audit_event(db, event_type='REDEMPTION_EXECUTE', entity_type='ETF_SHARE_FLOW', entity_id=flow.id, user_id=user.id, payload={'intent_id': intent.id, 'etf_id': etf.id, 'tx_hash': tx_hash, 'order_ids': flow.settlement_order_ids})
     db.commit()
     db.refresh(holding)
     return holding
@@ -328,6 +347,8 @@ def distribute_fees(etf_id: int, db: Session = Depends(get_db), user: UserModel 
     etf.fee_accrued = (etf.fee_accrued or Decimal(0)) - distributed
     if etf.fee_accrued < 0:
         etf.fee_accrued = Decimal(0)
+    db.flush()
+    record_audit_event(db, event_type='FEE_DISTRIBUTION', entity_type='FEE_EVENT', entity_id=fee_event.id, user_id=user.id, payload={'etf_id': etf.id, 'amount': str(distributed)})
     db.commit()
     return {'etf_id': etf_id, 'distributed': str(distributed), 'recipients': len(holders)}
 
@@ -414,3 +435,9 @@ def get_apy(etf_id: int, lookback_days: int = 30, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail='ETF not found')
     apy = nav_service.estimate_apy(db, etf_id, lookback_days=lookback_days)
     return { 'etf_id': etf_id, 'apy': str(apy) if apy is not None else None, 'lookback_days': lookback_days }
+
+@router.get('/etfs/{etf_id}/nav/history')
+def nav_history(etf_id: int, limit: int = 200, db: Session = Depends(get_db)):
+    from app.models.database import DomainETFNavHistory as Hist
+    rows = db.query(Hist).filter(Hist.etf_id==etf_id).order_by(Hist.snapshot_time.desc()).limit(min(limit, 1000)).all()
+    return [ { 'snapshot_time': r.snapshot_time.isoformat(), 'nav_per_share': str(r.nav_per_share) } for r in reversed(rows) ]

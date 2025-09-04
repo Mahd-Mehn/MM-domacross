@@ -3,9 +3,10 @@ import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiJson, authHeader } from '../../../lib/api';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '../../../components/ui/Button';
 import dynamic from 'next/dynamic';
+import { ProofStatus } from '../../components/ProofStatus';
 
 // Lazy load SDK only on client when needed
 let orderbookClient: any = null;
@@ -29,6 +30,7 @@ interface ETF { id:number; name:string; symbol:string; description?:string; nav_
 interface Position { id:number; domain_name:string; weight_bps:number; }
 interface Holding { etf_id:number; shares:string; lock_until?:string|null }
 interface Flow { id:number; flow_type:'ISSUE'|'REDEEM'; shares:string; cash_value:string; nav_per_share:string; created_at:string }
+interface NavPoint { snapshot_time:string; nav_per_share:string; }
 
 export default function ETFDetailPage(){
   const params = useParams();
@@ -37,15 +39,56 @@ export default function ETFDetailPage(){
   const etfQ = useQuery({ queryKey:['etf', id], queryFn:()=> apiJson<ETF>(`/api/v1/etfs/${id}`, { headers: authHeader() })});
   const posQ = useQuery({ queryKey:['etf-positions', id], queryFn:()=> apiJson<Position[]>(`/api/v1/etfs/${id}/positions`, { headers: authHeader() })});
   const holdingQ = useQuery({ queryKey:['etf-holding', id], queryFn:()=> apiJson<Holding>(`/api/v1/etfs/${id}/my/shares`, { headers: authHeader() })});
-  const feeEventsQ = useQuery({ queryKey:['etf-fee-events', id], queryFn:()=> apiJson<any[]>(`/api/v1/etfs/${id}/fee-events`, { headers: authHeader() }), refetchInterval: 30000 });
+  // Fee events unified (events + proofs)
+  const [feeCursor, setFeeCursor] = useState<number|undefined>(undefined);
+  const [feeFilterTypes, setFeeFilterTypes] = useState<string[]>(['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION']);
+  function toggleFeeFilter(t:string){ setFeeFilterTypes(prev => prev.includes(t)? prev.filter(x=>x!==t): [...prev,t]); setFeeCursor(undefined); }
+  const feeEventsQ = useQuery({
+    queryKey:['etf-fee-events-unified', id, feeCursor, feeFilterTypes.sort().join(',')],
+    queryFn: async ()=> {
+      const params = new URLSearchParams();
+      params.set('limit','40');
+      if(feeCursor) params.set('cursor_before_id', String(feeCursor));
+      if(feeFilterTypes.length && feeFilterTypes.length<5) params.set('event_types', feeFilterTypes.join(','));
+      return apiJson<any>(`/api/v1/settlement/fee-events-unified?${params.toString()}`);
+    },
+    refetchInterval: 25000
+  });
+  const unifiedProofsMap = React.useMemo(()=>{ const m: Record<number, any> = {}; feeEventsQ.data?.proofs?.forEach((p:any)=> { m[p.event_id] = p; }); return m; }, [feeEventsQ.data]);
+  // Snapshot-with-proofs (fetch limited proofs for latest events)
+  const [proofCursor, setProofCursor] = useState<number|undefined>(undefined);
+  const [proofFilters, setProofFilters] = useState<string>(''); // comma-separated event types
+  const snapshotProofsQ = useQuery({
+    queryKey:['snapshot-proofs', proofCursor, proofFilters],
+    queryFn: async ()=> {
+      const params = new URLSearchParams();
+      params.set('limit','15');
+      if(proofCursor) params.set('cursor_before_id', String(proofCursor));
+      if(proofFilters) params.set('event_types', proofFilters);
+      return apiJson<any>(`/api/v1/settlement/snapshot-with-proofs?${params.toString()}`);
+    },
+    refetchInterval: 20000
+  });
+  const proofsMap = React.useMemo(()=>{
+    const m: Record<number, any> = {};
+    snapshotProofsQ.data?.proofs?.forEach((p:any)=> { m[p.event_id] = p; });
+    return m;
+  }, [snapshotProofsQ.data]);
+  const [selectedProofEventId, setSelectedProofEventId] = useState<number|undefined>(undefined);
   const revenueSharesQ = useQuery({ queryKey:['etf-revenue-shares', id], queryFn:()=> apiJson<any[]>(`/api/v1/etfs/${id}/revenue-shares`, { headers: authHeader() }), refetchInterval: 45000 });
   const apyQ = useQuery({ queryKey:['etf-apy', id], queryFn:()=> apiJson<{etf_id:number; apy:string|null; lookback_days:number}>(`/api/v1/etfs/${id}/apy?lookback_days=30`, { headers: authHeader() }), refetchInterval: 60000 });
+  const ownerQ = useQuery({ queryKey:['etf-is-owner', id], queryFn:()=> apiJson<{etf_id:number; is_owner:boolean}>(`/api/v1/etfs/${id}/is-owner`, { headers: authHeader() })});
   const flowsQ = useQuery({ queryKey:['etf-flows', id], queryFn:()=> apiJson<Flow[]>(`/api/v1/etfs/${id}/flows`, { headers: authHeader() })});
   const [issueOpen, setIssueOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [redeemShares, setRedeemShares] = useState('');
   const [redeemSettlementIds, setRedeemSettlementIds] = useState('');
   const navPerShareQ = useQuery({ queryKey:['etf-navps', id], queryFn:()=> apiJson<{etf_id:number; nav_per_share:string|null}>(`/api/v1/etfs/${id}/nav/per-share`, { headers: authHeader() }), refetchInterval: 15000 });
+  const navHistoryQ = useQuery({ queryKey:['etf-nav-history', id], queryFn:()=> apiJson<NavPoint[]>(`/api/v1/etfs/${id}/nav/history?limit=720`, { headers: authHeader() }), refetchInterval: 60000 });
+  const [range, setRange] = useState<'1D'|'7D'|'30D'|'ALL'>('30D');
+  const ALL_EVENT_TYPES = ['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'];
+  const [eventTypes, setEventTypes] = useState<string[]>(ALL_EVENT_TYPES);
+  function toggleEventType(t:string){ setEventTypes(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev, t]); }
   const [toasts, setToasts] = useState<{id:number; msg:string; type:'error'|'info'}[]>([]);
   function pushToast(msg:string, type:'error'|'info'='info'){ setToasts(t=>[...t,{id:Date.now()+Math.random(), msg, type}]); }
   useEffect(()=>{ if(toasts.length){ const timer = setTimeout(()=> setToasts(t=> t.slice(1)), 4000); return ()=> clearTimeout(timer);} }, [toasts]);
@@ -83,7 +126,25 @@ export default function ETFDetailPage(){
       // Placeholder settlement with SDK (simulate liquidation)
       const client = await getOrderbookClient();
       if(client){
-        try { await client.settleRedemption?.({ etfId: Number(id), intentId: intent.id, shares }); } catch(err){ pushToast('SDK settlement failed (continuing)', 'error'); }
+        try {
+          // Future domain liquidation sequence (pseudo-code):
+          // 1. Derive portfolio slice for redemption (API already snapshotted nav per share)
+          // 2. For each underlying domain: if listing exists use buy/accept path, else create listing then buy via internal liquidity strategy
+          // 3. Track generated order IDs, aggregate proceeds
+          // 4. Confirm proceeds >= required redemption cash value within tolerance
+          // 5. Call execute intent passing settlement_order_ids
+          // This will use forthcoming SDK helpers: client.batchLiquidateDomains({ items, onProgress })
+          if(client.batchLiquidateDomains){
+            const liquidation = await client.batchLiquidateDomains({
+              etfId: Number(id),
+              shares,
+              onProgress: (_step: string,_pct:number)=>{}
+            });
+            if(liquidation?.orderIds) (client as any).lastOrderIds = liquidation.orderIds;
+          } else {
+            await client.settleRedemption?.({ etfId: Number(id), intentId: intent.id, shares });
+          }
+        } catch(err){ pushToast('SDK settlement failed (continuing)', 'error'); }
       }
       // Fake settlement order ids (would come from SDK actions)
       const combinedIds = [...(client?.lastOrderIds||[]), ...settlement_order_ids];
@@ -135,7 +196,7 @@ export default function ETFDetailPage(){
         </div>
         <div className="surface rounded-xl p-4 space-y-2">
           <div className="text-[11px] uppercase tracking-wide text-slate-400">Distribute</div>
-          <Button size="sm" disabled={distributeMut.isPending} onClick={()=>distributeMut.mutate()}>{distributeMut.isPending? 'Distributing...' : 'Distribute Fees'}</Button>
+          <Button size="sm" disabled={distributeMut.isPending || !ownerQ.data?.is_owner} onClick={()=>distributeMut.mutate()}>{distributeMut.isPending? 'Distributing...' : ownerQ.data?.is_owner ? 'Distribute Fees' : 'Not Owner'}</Button>
           {distributeMut.error && <div className="text-[10px] text-red-400">Failed.</div>}
         </div>
         <div className="surface rounded-xl p-4 space-y-1 text-xs">
@@ -143,6 +204,31 @@ export default function ETFDetailPage(){
           <div>{revenueSharesQ.data?.length || 0} entries</div>
           <div className="text-[10px] text-slate-500">Auto-refreshing</div>
         </div>
+      </section>
+      <section className="space-y-4">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold tracking-tight">NAV History</h2>
+            <div className="flex flex-wrap gap-1 text-[10px]">
+              {ALL_EVENT_TYPES.map(t => (
+                <button key={t} onClick={()=>toggleEventType(t)} className={`px-2 py-1 rounded border ${eventTypes.includes(t)?'bg-amber-500/20 border-amber-400/40 text-amber-300':'bg-slate-800/60 border-white/10 text-slate-400 hover:text-slate-200'}`}>{t.replace('_',' ').replace('_',' ')}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-1 text-[11px] bg-slate-800/60 rounded-md p-1 border border-white/10 h-fit">
+            {(['1D','7D','30D','ALL'] as const).map(r => (
+              <button key={r} onClick={()=>setRange(r)} className={`px-2 py-1 rounded ${range===r? 'bg-slate-700 text-slate-100':'text-slate-400 hover:text-slate-200'}`}>{r}</button>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/10 p-4 surface relative">
+          {navHistoryQ.isLoading && <div className="text-xs text-slate-500">Loading NAV history...</div>}
+          {!navHistoryQ.isLoading && (!navHistoryQ.data || navHistoryQ.data.length<2) && <div className="text-xs text-slate-500">Not enough data.</div>}
+          {!navHistoryQ.isLoading && navHistoryQ.data && navHistoryQ.data.length>1 && (
+            <NavChart points={navHistoryQ.data} range={range} feeEvents={(feeEventsQ.data?.events||[]).filter((ev: any)=> eventTypes.includes(ev.event_type))} />
+          )}
+        </div>
+        <p className="text-[11px] text-slate-500 leading-relaxed max-w-2xl">Chart displays recorded NAV per share snapshots (up to last 720 points). Performance fee crystallizations can cause step-changes; creation/redemption flows indirectly impact trajectory via capital inflows/outflows. APY estimate uses 30-day compounding of underlying fee accrual and performance.</p>
       </section>
   <section className="space-y-4">
         <h2 className="text-2xl font-bold tracking-tight">Composition</h2>
@@ -213,6 +299,28 @@ export default function ETFDetailPage(){
       </section>
       <section className="space-y-4">
         <h2 className="text-2xl font-bold tracking-tight">Fee Events</h2>
+        {feeEventsQ.data?.events && feeEventsQ.data.events.length>0 && (
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold tracking-wide text-slate-400">Event Proof</h3>
+              <div className="flex gap-2 items-center text-[10px] text-slate-400">
+                <select className="bg-slate-800/60 border border-white/10 rounded px-2 py-1" value={selectedProofEventId || feeEventsQ.data.events[0].id} onChange={e=> setSelectedProofEventId(parseInt(e.target.value))}>
+                  {feeEventsQ.data.events.slice(0,100).map((ev:any)=> (
+                    <option key={ev.id} value={ev.id}>{ev.event_type} #{ev.id}</option>
+                  ))}
+                </select>
+                <button onClick={()=> { setFeeCursor(feeEventsQ.data?.next_cursor); }} disabled={feeEventsQ.isFetching || !feeEventsQ.data?.has_more} className="px-2 py-1 border border-white/10 rounded disabled:opacity-40">More</button>
+                <div className="flex gap-1">
+                  {['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'].map(t=> (
+                    <button key={t} onClick={()=>toggleFeeFilter(t)} className={`px-1.5 py-0.5 rounded border ${feeFilterTypes.includes(t)?'bg-amber-500/20 border-amber-400/40 text-amber-300':'bg-slate-800/60 border-white/10 text-slate-400'}`}>{t.split('_')[0]}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <ProofStatus eventId={selectedProofEventId || feeEventsQ.data.events[0].id} preFetched={unifiedProofsMap} />
+            {feeEventsQ.data && <div className="text-[10px] text-slate-500">Snapshot Root: <span className="font-mono break-all">{feeEventsQ.data.snapshot_root}</span></div>}
+          </div>
+        )}
         <div className="rounded-lg border border-white/10 overflow-hidden">
           <table className="w-full text-xs">
             <thead className="bg-slate-800/60 text-slate-300 uppercase tracking-wide">
@@ -223,16 +331,40 @@ export default function ETFDetailPage(){
               </tr>
             </thead>
             <tbody>
-              {feeEventsQ.data?.map(ev => (
+        {feeEventsQ.data?.events?.map((ev:any) => (
                 <tr key={ev.id} className="border-t border-white/5">
                   <td className="px-3 py-2">{new Date(ev.created_at).toLocaleTimeString()}</td>
                   <td className="px-3 py-2">{ev.event_type}</td>
-                  <td className="px-3 py-2">{ev.amount}</td>
+          <td className="px-3 py-2">{ev.payload?.amount ?? ev.payload?.a ?? ''}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {!feeEventsQ.isLoading && (feeEventsQ.data?.length||0)===0 && <div className="text-center text-slate-500 text-xs py-4">No fee events.</div>}
+      {!feeEventsQ.isLoading && (feeEventsQ.data?.events?.length||0)===0 && <div className="text-center text-slate-500 text-xs py-4">No fee events.</div>}
+        </div>
+      </section>
+      <section className="space-y-4">
+        <h2 className="text-2xl font-bold tracking-tight">Revenue Shares</h2>
+        <div className="rounded-lg border border-white/10 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-800/60 text-slate-300 uppercase tracking-wide">
+              <tr>
+                <th className="text-left px-3 py-2">Time</th>
+                <th className="text-left px-3 py-2">User</th>
+                <th className="text-left px-3 py-2">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {revenueSharesQ.data?.map(r => (
+                <tr key={r.id} className="border-t border-white/5">
+                  <td className="px-3 py-2">{new Date(r.created_at).toLocaleTimeString()}</td>
+                  <td className="px-3 py-2">{r.user_id}</td>
+                  <td className="px-3 py-2">{r.amount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!revenueSharesQ.isLoading && (revenueSharesQ.data?.length||0)===0 && <div className="text-center text-slate-500 text-xs py-4">No revenue shares.</div>}
         </div>
       </section>
       {issueOpen && (
@@ -284,5 +416,118 @@ export default function ETFDetailPage(){
         ))}
       </div>
     </main>
+  );
+}
+
+// Inline lightweight NAV chart component using pure SVG (no external deps)
+function NavChart({ points, range, feeEvents }: { points: NavPoint[]; range:'1D'|'7D'|'30D'|'ALL'; feeEvents: any[] }){
+  // Filter by range windows relative to latest timestamp
+  const sorted = [...points].sort((a,b)=> new Date(a.snapshot_time).getTime() - new Date(b.snapshot_time).getTime());
+  const latestTs = sorted.length ? new Date(sorted[sorted.length-1].snapshot_time).getTime() : Date.now();
+  const spans: Record<string, number> = { '1D': 24*3600e3, '7D': 7*24*3600e3, '30D': 30*24*3600e3 };
+  const windowMs = range==='ALL' ? Infinity : spans[range];
+  const windowStart = latestTs - windowMs;
+  const windowed = sorted.filter(p=> range==='ALL' || new Date(p.snapshot_time).getTime()>=windowStart);
+  if(windowed.length < 2) return <div className="text-xs text-slate-500">Not enough data.</div>;
+  const vals = windowed.map(p=> parseFloat(p.nav_per_share||'0')).filter(v=>!isNaN(v));
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const rangeVal = (max-min)||1;
+  const first = vals[0];
+  const last = vals[vals.length-1];
+  const pct = ((last-first)/(first||1))*100;
+  const poly = windowed.map((p,i)=> {
+    const x = (i/(windowed.length-1))*100;
+    const v = parseFloat(p.nav_per_share||'0');
+    const y = 100 - ((v-min)/rangeVal)*100;
+    return `${x},${y}`;
+  }).join(' ');
+  // Prepare fee event markers in window
+  const windowEvents = (feeEvents||[]).filter(ev=> {
+    const t = new Date(ev.created_at).getTime();
+    return range==='ALL' || t >= windowStart;
+  }).map(ev=>{
+    // find nearest point index
+    let nearestIdx = 0; let nearestDist = Infinity; const target = new Date(ev.created_at).getTime();
+    windowed.forEach((p,i)=>{ const d = Math.abs(new Date(p.snapshot_time).getTime() - target); if(d<nearestDist){ nearestDist=d; nearestIdx=i; }});
+    const basePoint = windowed[nearestIdx];
+    const v = parseFloat(basePoint.nav_per_share||'0');
+    const x = (nearestIdx/(windowed.length-1))*100;
+    const y = 100 - ((v-min)/rangeVal)*100;
+    return { x, y, ev, value: v, time: basePoint.snapshot_time };
+  });
+  const [hover, setHover] = React.useState<{x:number;y:number; label:string; raw:any; pinned?:boolean}|null>(null);
+  function onMove(e:React.MouseEvent<SVGSVGElement>){
+    if(hover?.pinned) return; // don't update if pinned
+    const rect = (e.target as SVGElement).closest('svg')!.getBoundingClientRect();
+    const px = ((e.clientX - rect.left)/rect.width)*100;
+    // find nearest point along polyline
+    let nearestIdx = 0; let nearestDist = Infinity;
+    windowed.forEach((p,i)=>{ const x = (i/(windowed.length-1))*100; const d = Math.abs(x-px); if(d<nearestDist){ nearestDist=d; nearestIdx=i; }});
+    const pt = windowed[nearestIdx];
+    const v = parseFloat(pt.nav_per_share||'0');
+    const x = (nearestIdx/(windowed.length-1))*100;
+    const y = 100 - ((v-min)/rangeVal)*100;
+    setHover({ x, y, label: `${new Date(pt.snapshot_time).toLocaleString()} | ${v.toFixed(6)} ETH`, raw: pt });
+  }
+  function onLeave(){ if(hover?.pinned) return; setHover(null); }
+  function onClick(e:React.MouseEvent<SVGSVGElement>){
+    if(!hover){ onMove(e); setHover(h=> h?{...h, pinned:true}:h); return; }
+    // toggle pin state
+    setHover(h=> h ? { ...h, pinned: !h.pinned } : h);
+  }
+  // Markers for fee crystallization or distribution events could be layered later
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+        <span>Range: {range}</span>
+        <span>Change: <span className={pct>=0? 'text-emerald-400':'text-red-400'}>{pct>=0?'+':''}{pct.toFixed(2)}%</span></span>
+        <span>Last: {last.toFixed(6)}</span>
+      </div>
+  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-56 cursor-crosshair" onMouseMove={onMove} onMouseLeave={onLeave} onClick={onClick}>
+        <defs>
+          <linearGradient id="navGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polyline fill="none" stroke="#10b981" strokeWidth={1.5} points={poly} vectorEffect="non-scaling-stroke" />
+        <polyline fill="url(#navGradient)" stroke="none" points={`0,100 ${poly} 100,100`} />
+        {windowEvents.map((m,i)=> (
+          <g key={i} onClick={(e)=>{ e.stopPropagation(); setHover({ x:m.x, y:m.y, label:`${new Date(m.time).toLocaleString()} | ${m.value.toFixed(6)} ETH | ${m.ev.event_type} ${m.ev.amount? '('+m.ev.amount+')':''}`, raw:m, pinned:true }); }}>
+            <circle cx={m.x} cy={m.y} r={hover?.raw===m && hover.pinned ? 2.2:1.6} fill="#f59e0b" className="transition-all" />
+          </g>
+        ))}
+        {hover && (
+          <g>
+            <line x1={hover.x} x2={hover.x} y1={0} y2={100} stroke="#64748b" strokeDasharray="2 2" strokeWidth={0.4} />
+            <circle cx={hover.x} cy={hover.y} r={1.8} fill="#fff" stroke="#10b981" strokeWidth={0.5} />
+          </g>
+        )}
+      </svg>
+      {hover && (
+        <div className="text-[10px] bg-slate-800/90 border border-white/10 rounded px-2 py-1 font-mono w-fit shadow flex items-center gap-2">
+          <span>{hover.label}</span>
+          {hover.pinned && <button className="text-[9px] px-1 py-0.5 bg-slate-700 rounded" onClick={()=> setHover(null)}>x</button>}
+        </div>
+      )}
+      {windowEvents.length>0 && (
+        <div className="flex flex-wrap gap-2 text-[10px] text-slate-400">
+          {windowEvents.slice(0,8).map((m,i)=> (
+            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800/60 border border-white/10">
+              <span className="w-2 h-2 rounded-full" style={{background:'#f59e0b'}} />
+              {m.ev.event_type}
+            </span>
+          ))}
+          {windowEvents.length>8 && <span className="text-slate-500">+{windowEvents.length-8} more</span>}
+        </div>
+      )}
+      <div className="grid grid-cols-4 gap-2 text-[10px] text-slate-500 font-mono">
+        <div>Min: {min.toFixed(6)}</div>
+        <div>Max: {max.toFixed(6)}</div>
+        <div>First: {first.toFixed(6)}</div>
+        <div>Pts: {windowed.length}</div>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons
+from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement
 import logging
 from typing import List
 import asyncio
@@ -11,6 +11,7 @@ from app.services.orderbook_snapshot_service import orderbook_snapshot_service
 from app.services.reconciliation_service import reconciliation_service
 from app.services.nav_service import nav_service
 from app.services.snapshot_service import snapshot_service
+from app.services.merkle_service import merkle_service
 from app.config import settings
 from app.database import SessionLocal
 from app.models.database import Domain
@@ -111,6 +112,25 @@ async def lifespan(app_: FastAPI):
                 logger.exception("[snapshot] run failed")
             await asyncio.sleep(interval)
 
+    async def merkle_loop():
+        interval = 120  # every 2 minutes attempt incremental merkle snapshot
+        logger.info("[merkle] loop started interval=%ss", interval)
+        from app.database import SessionLocal as _SL
+        while True:
+            db = _SL()
+            try:
+                snap = merkle_service.snapshot_incremental(db)
+                if snap:
+                    logger.info("[merkle] new snapshot root=%s events=%s", snap.merkle_root, snap.event_count)
+            except Exception:
+                logger.exception("[merkle] snapshot loop error")
+            finally:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+            await asyncio.sleep(interval)
+
     global bg_task
     loop_tasks: list[asyncio.Task] = []
     if settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
@@ -122,6 +142,7 @@ async def lifespan(app_: FastAPI):
     if settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(nav_loop()))
         loop_tasks.append(asyncio.create_task(fast_snapshot_loop()))
+    loop_tasks.append(asyncio.create_task(merkle_loop()))
     if loop_tasks:
         # keep reference to first for shutdown; others tracked in list
         bg_task = loop_tasks[0]
@@ -166,6 +187,7 @@ app.include_router(valuation.router, prefix="/api/v1")
 app.include_router(market.router, prefix="/api/v1")
 app.include_router(etf.router, prefix="/api/v1")
 app.include_router(seasons.router, prefix="/api/v1")
+app.include_router(settlement.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")
@@ -241,15 +263,20 @@ def metrics():
     # Orderbook & valuation counters
     try:
         from app.services.orderbook_snapshot_service import orderbook_snapshot_service as oss
-        lines.append(f"orderbook_requests_total {oss.total_requests}")
-        lines.append(f"orderbook_failures_total {oss.total_failures}")
-        lines.append(f"orderbook_snapshots_total {oss.total_snapshots}")
+        if hasattr(oss, 'total_requests'):
+            lines.append(f"orderbook_requests_total {getattr(oss,'total_requests')}")
+        if hasattr(oss, 'total_failures'):
+            lines.append(f"orderbook_failures_total {getattr(oss,'total_failures')}")
+        if hasattr(oss, 'total_snapshots'):
+            lines.append(f"orderbook_snapshots_total {getattr(oss,'total_snapshots')}")
     except Exception:
         pass
     try:
         from app.services.valuation_service import valuation_service as vs
-        lines.append(f"valuation_batches_total {vs.total_batches}")
-        lines.append(f"valuation_records_total {vs.total_valuations}")
+        if hasattr(vs, 'total_batches'):
+            lines.append(f"valuation_batches_total {getattr(vs,'total_batches')}")
+        if hasattr(vs, 'total_valuations'):
+            lines.append(f"valuation_records_total {getattr(vs,'total_valuations')}")
     except Exception:
         pass
     return "\n".join(lines) + "\n"

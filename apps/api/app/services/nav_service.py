@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 from app.database import SessionLocal
 from app.models.database import DomainETF as DomainETFModel, DomainETFPosition as DomainETFPositionModel, Domain as DomainModel, Valuation as ValuationModel, DomainETFFeeEvent, DomainETFNavHistory
+from app.services.audit_service import record_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,10 @@ class NavService:
         etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee_amount
         etf.management_fee_last_accrued_at = now
         session.add(DomainETFFeeEvent(etf_id=etf.id, event_type='MANAGEMENT_ACCRUAL', amount=fee_amount, nav_per_share_snapshot=None, meta={'elapsed_seconds': elapsed_seconds}))
+        try:
+            record_audit_event(session, event_type='MANAGEMENT_ACCRUAL', entity_type='FEE_EVENT', entity_id=etf.id, user_id=None, payload={'fee_amount': str(fee_amount), 'elapsed_seconds': elapsed_seconds})
+        except Exception:
+            logger.exception("[audit] failed to record management accrual event")
 
     def _crystallize_performance_fee(self, session, etf: DomainETFModel, nav: Decimal, now: datetime):
         if not etf.performance_fee_bps:
@@ -76,6 +81,10 @@ class NavService:
         etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee_amount
         etf.nav_high_water = nav
         session.add(DomainETFFeeEvent(etf_id=etf.id, event_type='PERFORMANCE_ACCRUAL', amount=fee_amount, nav_per_share_snapshot=None, meta={'gain': str(gain)}))
+        try:
+            record_audit_event(session, event_type='PERFORMANCE_ACCRUAL', entity_type='FEE_EVENT', entity_id=etf.id, user_id=None, payload={'fee_amount': str(fee_amount), 'gain': str(gain)})
+        except Exception:
+            logger.exception("[audit] failed to record performance accrual event")
 
     def run_once(self, stale_seconds: int = 600):
         session = SessionLocal()
