@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from typing import Any
 from app.models.database import AuditEvent
+from hashlib import sha256
+import json
 
 def record_audit_event(db: Session, *, event_type: str, entity_type: str, entity_id: int | None = None, user_id: int | None = None, payload: Any | None = None) -> AuditEvent:
     """Persist an immutable audit event row.
@@ -20,6 +22,17 @@ def record_audit_event(db: Session, *, event_type: str, entity_type: str, entity
     payload : Any | None
         Canonical snapshot / metadata used for Merkle hashing
     """
-    ae = AuditEvent(event_type=event_type, entity_type=entity_type, entity_id=entity_id, user_id=user_id, payload=payload)
+    # Fetch previous integrity hash
+    prev = db.query(AuditEvent).order_by(AuditEvent.id.desc()).first()
+    prev_hash = prev.integrity_hash if prev and prev.integrity_hash else ''
+    canonical = json.dumps({
+        'event_type': event_type,
+        'entity_type': entity_type,
+        'entity_id': entity_id,
+        'user_id': user_id,
+        'payload': payload
+    }, sort_keys=True, separators=(',',':'))
+    digest = sha256((prev_hash + canonical).encode()).hexdigest()
+    ae = AuditEvent(event_type=event_type, entity_type=entity_type, entity_id=entity_id, user_id=user_id, payload=payload, integrity_hash=digest)
     db.add(ae)
     return ae

@@ -143,6 +143,13 @@ async def lifespan(app_: FastAPI):
         loop_tasks.append(asyncio.create_task(nav_loop()))
         loop_tasks.append(asyncio.create_task(fast_snapshot_loop()))
     loop_tasks.append(asyncio.create_task(merkle_loop()))
+    # Start lightweight thread-based scheduler (periodic merkle snapshot + chain ingest stub)
+    try:
+        from .background import scheduler
+        scheduler.start()
+        logger.info("[startup] background scheduler started")
+    except Exception:
+        logger.exception("Failed to start background scheduler")
     if loop_tasks:
         # keep reference to first for shutdown; others tracked in list
         bg_task = loop_tasks[0]
@@ -161,6 +168,12 @@ async def lifespan(app_: FastAPI):
                 await t
             except Exception:
                 pass
+    # Stop scheduler
+    try:
+        from .background import scheduler
+        scheduler.stop()
+    except Exception:
+        logger.exception("Failed to stop background scheduler")
     logger.info("[shutdown] API shutting down")
 
 app = FastAPI(title="DomaCross API", version="0.1.0", lifespan=lifespan)

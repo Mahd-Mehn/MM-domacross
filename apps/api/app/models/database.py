@@ -204,6 +204,7 @@ class DomainETFRedemptionIntent(Base):
     nav_per_share_snapshot = Column(Numeric(24,8), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     executed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    verified_onchain = Column(Boolean, nullable=True, index=True)
 
 # Competition epochs & rewards for incentive layer
 class CompetitionEpoch(Base):
@@ -306,6 +307,7 @@ class AuditEvent(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True, index=True)
     payload = Column(JSON, nullable=True)  # canonical snapshot for merkle hashing
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    integrity_hash = Column(String(130), nullable=True, index=True)  # sha256(prev_integrity_hash || canonical_json)
 
 class MerkleSnapshot(Base):
     __tablename__ = 'merkle_snapshots'

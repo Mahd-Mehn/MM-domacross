@@ -1,5 +1,5 @@
 "use client";
-import { useParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiJson, authHeader } from '../../../lib/api';
 import Link from 'next/link';
@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '../../../components/ui/Button';
 import dynamic from 'next/dynamic';
 import { ProofStatus } from '../../components/ProofStatus';
+// integrity status uses merkle latest API
 
 // Lazy load SDK only on client when needed
 let orderbookClient: any = null;
@@ -31,18 +32,40 @@ interface Position { id:number; domain_name:string; weight_bps:number; }
 interface Holding { etf_id:number; shares:string; lock_until?:string|null }
 interface Flow { id:number; flow_type:'ISSUE'|'REDEEM'; shares:string; cash_value:string; nav_per_share:string; created_at:string }
 interface NavPoint { snapshot_time:string; nav_per_share:string; }
+interface RedemptionIntent { id:number; shares:string; nav_per_share_snapshot:string; created_at:string; executed_at?:string|null; verified_onchain:boolean }
 
 export default function ETFDetailPage(){
   const params = useParams();
+  const router = useRouter();
+  const search = useSearchParams();
   const id = params.id as string;
   const qc = useQueryClient();
   const etfQ = useQuery({ queryKey:['etf', id], queryFn:()=> apiJson<ETF>(`/api/v1/etfs/${id}`, { headers: authHeader() })});
   const posQ = useQuery({ queryKey:['etf-positions', id], queryFn:()=> apiJson<Position[]>(`/api/v1/etfs/${id}/positions`, { headers: authHeader() })});
   const holdingQ = useQuery({ queryKey:['etf-holding', id], queryFn:()=> apiJson<Holding>(`/api/v1/etfs/${id}/my/shares`, { headers: authHeader() })});
-  // Fee events unified (events + proofs)
+  // Fee events unified (events + proofs) with URL persistence
+  const initialFeeTypes = React.useMemo(()=>{
+    const raw = search.get('fee_types');
+    if(!raw) return ['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'];
+    const parts = raw.split(',').filter(Boolean);
+    return parts.length? parts : ['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'];
+  }, [search]);
   const [feeCursor, setFeeCursor] = useState<number|undefined>(undefined);
-  const [feeFilterTypes, setFeeFilterTypes] = useState<string[]>(['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION']);
-  function toggleFeeFilter(t:string){ setFeeFilterTypes(prev => prev.includes(t)? prev.filter(x=>x!==t): [...prev,t]); setFeeCursor(undefined); }
+  const [feeFilterTypes, setFeeFilterTypes] = useState<string[]>(initialFeeTypes);
+  function pushUrlState(next: { fee_types?: string; fee_event?: string|number|undefined }){
+    const sp = new URLSearchParams(search.toString());
+    if(next.fee_types !== undefined){ if(next.fee_types) sp.set('fee_types', next.fee_types); else sp.delete('fee_types'); }
+    if(next.fee_event !== undefined){ if(next.fee_event) sp.set('fee_event', String(next.fee_event)); else sp.delete('fee_event'); }
+    router.replace(`?${sp.toString()}`);
+  }
+  function toggleFeeFilter(t:string){
+    setFeeCursor(undefined);
+    setFeeFilterTypes(prev => {
+      const updated = prev.includes(t)? prev.filter(x=>x!==t): [...prev,t];
+      pushUrlState({ fee_types: updated.length && updated.length<5 ? updated.join(',') : '' });
+      return updated;
+    });
+  }
   const feeEventsQ = useQuery({
     queryKey:['etf-fee-events-unified', id, feeCursor, feeFilterTypes.sort().join(',')],
     queryFn: async ()=> {
@@ -74,11 +97,17 @@ export default function ETFDetailPage(){
     snapshotProofsQ.data?.proofs?.forEach((p:any)=> { m[p.event_id] = p; });
     return m;
   }, [snapshotProofsQ.data]);
-  const [selectedProofEventId, setSelectedProofEventId] = useState<number|undefined>(undefined);
+  const [selectedProofEventId, setSelectedProofEventId] = useState<number|undefined>(()=> { const ev = search.get('fee_event'); return ev? parseInt(ev): undefined; });
+  useEffect(()=>{ if(selectedProofEventId) pushUrlState({ fee_event: selectedProofEventId }); }, [selectedProofEventId]);
   const revenueSharesQ = useQuery({ queryKey:['etf-revenue-shares', id], queryFn:()=> apiJson<any[]>(`/api/v1/etfs/${id}/revenue-shares`, { headers: authHeader() }), refetchInterval: 45000 });
   const apyQ = useQuery({ queryKey:['etf-apy', id], queryFn:()=> apiJson<{etf_id:number; apy:string|null; lookback_days:number}>(`/api/v1/etfs/${id}/apy?lookback_days=30`, { headers: authHeader() }), refetchInterval: 60000 });
   const ownerQ = useQuery({ queryKey:['etf-is-owner', id], queryFn:()=> apiJson<{etf_id:number; is_owner:boolean}>(`/api/v1/etfs/${id}/is-owner`, { headers: authHeader() })});
   const flowsQ = useQuery({ queryKey:['etf-flows', id], queryFn:()=> apiJson<Flow[]>(`/api/v1/etfs/${id}/flows`, { headers: authHeader() })});
+  const intentsQ = useQuery({ queryKey:['etf-redemption-intents', id], queryFn:()=> apiJson<RedemptionIntent[]>(`/api/v1/settlement/etfs/${id}/redemption-intents`, { headers: authHeader() }), refetchInterval: 20000 });
+  const verifyMut = useMutation({
+    mutationFn: async (vars:{intentId:number; txHash:string}) => apiJson(`/api/v1/settlement/etfs/${id}/redemption-verify/${vars.intentId}?tx_hash=${encodeURIComponent(vars.txHash)}`, { method:'POST', headers: authHeader() }),
+    onSuccess: ()=> { intentsQ.refetch(); pushToast('Verification submitted','info'); }
+  });
   const [issueOpen, setIssueOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [redeemShares, setRedeemShares] = useState('');
@@ -98,11 +127,11 @@ export default function ETFDetailPage(){
       const params = vars.lockSeconds ? `?lock_period_seconds=${encodeURIComponent(vars.lockSeconds)}` : '';
       return apiJson(`/api/v1/etfs/${id}/issue${params}`, { method:'POST', headers: { ...authHeader() }, body: JSON.stringify({ shares: vars.shares })});
     },
-    onSuccess: ()=>{ qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); setIssueOpen(false);} 
+    onSuccess: ()=>{ qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); optimisticAddFeeEvent('ISSUE_FEE'); setIssueOpen(false);} 
   });
   const distributeMut = useMutation({
     mutationFn: async ()=> apiJson(`/api/v1/etfs/${id}/fees/distribute`, { method:'POST', headers: authHeader() }),
-    onSuccess: ()=> { qc.invalidateQueries({queryKey:['etf',''+id]}); qc.invalidateQueries({queryKey:['etf-fee-events', id]}); qc.invalidateQueries({queryKey:['etf-revenue-shares', id]}); pushToast('Fees distributed'); }
+    onSuccess: ()=> { qc.invalidateQueries({queryKey:['etf',''+id]}); qc.invalidateQueries({queryKey:['etf-revenue-shares', id]}); optimisticAddFeeEvent('DISTRIBUTION'); qc.invalidateQueries({queryKey:['etf-fee-events-unified', id]}); pushToast('Fees distributed'); }
   });
 
   const redeemIntentMut = useMutation({
@@ -112,8 +141,22 @@ export default function ETFDetailPage(){
   });
   const redeemExecuteMut = useMutation({
     mutationFn: async (vars:{intentId:number; settlement_order_ids?:string[]}) => apiJson(`/api/v1/etfs/${id}/redeem/execute/${vars.intentId}`, { method:'POST', headers: authHeader(), body: JSON.stringify(vars.settlement_order_ids ? { settlement_order_ids: vars.settlement_order_ids } : {}) }),
-    onSuccess: ()=>{ qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); setRedeemOpen(false);} 
+    onSuccess: ()=>{ qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); optimisticAddFeeEvent('REDEMPTION_FEE'); setRedeemOpen(false);} 
   });
+  const merkleLatestQ = useQuery({ queryKey:['merkle-latest'], queryFn:()=> apiJson<any>('/api/v1/settlement/merkle/latest'), refetchInterval: 30000 });
+  // Optimistic fee event insertion into unified cache
+  function optimisticAddFeeEvent(eventType: string, amount?: string){
+    qc.setQueryData<any>(['etf-fee-events-unified', id, undefined, feeFilterTypes.sort().join(',')], (old:any)=>{
+      if(!old || !old.events) return old; // only modify base page
+      const tmpId = -Math.floor(Math.random()*1e9);
+      const ev = { id: tmpId, event_type: eventType, entity_type: 'ETF', payload: { amount: amount || '0', optimistic: true }, created_at: new Date().toISOString() };
+      // Prepend if passes filter
+      if(feeFilterTypes.includes(eventType) || feeFilterTypes.length===5){
+        return { ...old, events: [ev, ...old.events].slice(0, 100) };
+      }
+      return old;
+    });
+  }
 
   async function handleRedeem(e:React.FormEvent<HTMLFormElement>){
     e.preventDefault();
@@ -180,6 +223,12 @@ export default function ETFDetailPage(){
         <div className="surface rounded-xl p-4">
           <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">APY (Est)</div>
           <div className="font-semibold text-slate-200">{apyQ.data?.apy ? (parseFloat(apyQ.data.apy)*100).toFixed(2)+'%' : '—'}</div>
+        </div>
+        <div className="surface rounded-xl p-4 col-span-full lg:col-span-1">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">Integrity Root</div>
+          {merkleLatestQ.isLoading && <div className="text-xs text-slate-500">Loading…</div>}
+          {merkleLatestQ.data && <div className="text-[10px] font-mono break-all leading-snug max-h-16 overflow-y-auto">{merkleLatestQ.data.merkle_root || '—'}</div>}
+          {merkleLatestQ.data && <div className="text-[10px] text-slate-500 mt-1">Events: {merkleLatestQ.data.event_count}</div>}
         </div>
       </section>
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -271,6 +320,45 @@ export default function ETFDetailPage(){
           </div>
         </div>
         <div className="space-y-2">
+          <h3 className="text-lg font-semibold tracking-tight">Redemption Intents</h3>
+          <div className="rounded-lg border border-white/10 overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-800/60 text-slate-300 uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-3 py-2">ID</th>
+                  <th className="text-left px-3 py-2">Shares</th>
+                  <th className="text-left px-3 py-2">NAV/Share</th>
+                  <th className="text-left px-3 py-2">Created</th>
+                  <th className="text-left px-3 py-2">Executed</th>
+                  <th className="text-left px-3 py-2">Verified</th>
+                  <th className="text-left px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {intentsQ.data?.map(intent => (
+                  <tr key={intent.id} className="border-t border-white/5">
+                    <td className="px-3 py-2">#{intent.id}</td>
+                    <td className="px-3 py-2">{intent.shares}</td>
+                    <td className="px-3 py-2">{intent.nav_per_share_snapshot}</td>
+                    <td className="px-3 py-2">{new Date(intent.created_at).toLocaleTimeString()}</td>
+                    <td className="px-3 py-2">{intent.executed_at ? new Date(intent.executed_at).toLocaleTimeString() : '—'}</td>
+                    <td className="px-3 py-2">{intent.verified_onchain ? <span className="text-emerald-400">Yes</span> : <span className="text-slate-500">No</span>}</td>
+                    <td className="px-3 py-2 flex gap-2">
+                      {!intent.verified_onchain && intent.executed_at && (
+                        <button onClick={()=> { const tx = prompt('Enter redemption tx hash'); if(tx){ verifyMut.mutate({ intentId: intent.id, txHash: tx }); } }} className="px-2 py-1 border border-white/10 rounded hover:bg-slate-700 text-[10px]">Verify</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {(!intentsQ.data || intentsQ.data.length===0) && !intentsQ.isLoading && (
+                  <tr className="border-t border-white/5"><td colSpan={7} className="px-3 py-4 text-center text-slate-500">No intents.</td></tr>
+                )}
+                {intentsQ.isLoading && <tr className="border-t border-white/5"><td colSpan={7} className="px-3 py-2 text-[10px] text-slate-500">Loading...</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="space-y-2">
           <h3 className="text-lg font-semibold tracking-tight">Flows</h3>
           <div className="rounded-lg border border-white/10 overflow-hidden">
             <table className="w-full text-xs">
@@ -299,7 +387,8 @@ export default function ETFDetailPage(){
       </section>
       <section className="space-y-4">
         <h2 className="text-2xl font-bold tracking-tight">Fee Events</h2>
-        {feeEventsQ.data?.events && feeEventsQ.data.events.length>0 && (
+  {feeEventsQ.isError && <div className="text-xs text-red-500">Failed to load fee events.</div>}
+  {feeEventsQ.data?.events && feeEventsQ.data.events.length>0 && (
           <div className="mb-4 space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold tracking-wide text-slate-400">Event Proof</h3>
@@ -309,7 +398,7 @@ export default function ETFDetailPage(){
                     <option key={ev.id} value={ev.id}>{ev.event_type} #{ev.id}</option>
                   ))}
                 </select>
-                <button onClick={()=> { setFeeCursor(feeEventsQ.data?.next_cursor); }} disabled={feeEventsQ.isFetching || !feeEventsQ.data?.has_more} className="px-2 py-1 border border-white/10 rounded disabled:opacity-40">More</button>
+                <button onClick={()=> { setFeeCursor(feeEventsQ.data?.next_cursor); }} disabled={feeEventsQ.isFetching || !feeEventsQ.data?.has_more} className="px-2 py-1 border border-white/10 rounded disabled:opacity-40 flex items-center gap-1">{feeEventsQ.isFetching? <span className="animate-spin inline-block w-3 h-3 border border-slate-400 border-t-transparent rounded-full"/>: null} More</button>
                 <div className="flex gap-1">
                   {['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'].map(t=> (
                     <button key={t} onClick={()=>toggleFeeFilter(t)} className={`px-1.5 py-0.5 rounded border ${feeFilterTypes.includes(t)?'bg-amber-500/20 border-amber-400/40 text-amber-300':'bg-slate-800/60 border-white/10 text-slate-400'}`}>{t.split('_')[0]}</button>
@@ -331,13 +420,25 @@ export default function ETFDetailPage(){
               </tr>
             </thead>
             <tbody>
-        {feeEventsQ.data?.events?.map((ev:any) => (
-                <tr key={ev.id} className="border-t border-white/5">
-                  <td className="px-3 py-2">{new Date(ev.created_at).toLocaleTimeString()}</td>
-                  <td className="px-3 py-2">{ev.event_type}</td>
-          <td className="px-3 py-2">{ev.payload?.amount ?? ev.payload?.a ?? ''}</td>
-                </tr>
-              ))}
+              {feeEventsQ.data?.events?.map((ev:any) => {
+                const optimistic = ev.payload?.optimistic;
+                return (
+                  <tr key={ev.id} className={`border-t border-white/5 ${optimistic? 'opacity-70':''}`}>
+                    <td className="px-3 py-2 flex items-center gap-2">
+                      <span>{new Date(ev.created_at).toLocaleTimeString()}</span>
+                      {optimistic && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-200 border border-amber-400/40">pending</span>}
+                    </td>
+                    <td className="px-3 py-2">{ev.event_type}</td>
+                    <td className="px-3 py-2">{ev.payload?.amount ?? ev.payload?.a ?? ''}</td>
+                  </tr>
+                );
+              })}
+              {feeEventsQ.isFetching && (
+                <tr className="border-t border-white/5"><td colSpan={3} className="px-3 py-2 text-[10px] text-slate-500">Loading...</td></tr>
+              )}
+              {feeEventsQ.isError && (
+                <tr className="border-t border-white/5"><td colSpan={3} className="px-3 py-2 text-[10px] text-red-500">Error loading events.</td></tr>
+              )}
             </tbody>
           </table>
       {!feeEventsQ.isLoading && (feeEventsQ.data?.events?.length||0)===0 && <div className="text-center text-slate-500 text-xs py-4">No fee events.</div>}

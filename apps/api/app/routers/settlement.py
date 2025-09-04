@@ -3,6 +3,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.database import AuditEvent, MerkleSnapshot, DomainETFShareFlow, DomainETFFeeEvent, DomainETFRedemptionIntent, DomainETF as DomainETFModel
 from app.services.merkle_service import merkle_service
+from app.services.audit_service import record_audit_event
+from app.services.blockchain_service import blockchain_service
+from app.services.redemption_validation import validate_redemption_receipt
 from app.deps.auth import get_current_user
 from app.models.database import User as UserModel
 from typing import Any
@@ -13,6 +16,7 @@ import base64
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import serialization
+from fastapi.responses import StreamingResponse
 
 router = APIRouter()
 
@@ -78,6 +82,18 @@ def list_audit_events(limit: int = 200, offset: int = 0, event_type: str | None 
         'payload': r.payload,
         'created_at': r.created_at.isoformat()
     } for r in rows ]
+
+@router.get('/settlement/etfs/{etf_id}/redemption-intents')
+def list_redemption_intents(etf_id: int, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    intents = db.query(DomainETFRedemptionIntent).filter(DomainETFRedemptionIntent.etf_id==etf_id, DomainETFRedemptionIntent.user_id==user.id).order_by(DomainETFRedemptionIntent.id.desc()).limit(200).all()
+    return [ {
+        'id': i.id,
+        'shares': str(i.shares),
+        'nav_per_share_snapshot': str(i.nav_per_share_snapshot),
+        'created_at': i.created_at.isoformat() if i.created_at else None,
+        'executed_at': i.executed_at.isoformat() if i.executed_at else None,
+        'verified_onchain': bool(i.verified_onchain)
+    } for i in intents ]
 
 @router.get('/settlement/merkle/latest')
 def latest_merkle(db: Session = Depends(get_db)):
@@ -162,10 +178,142 @@ def submit_redemption_proof(etf_id: int, intent_id: int, tx_hash: str, db: Sessi
     db.refresh(ae)
     return { 'audit_event_id': ae.id }
 
-def record_audit_event(db: Session, event_type: str, entity_type: str, entity_id: int | None, user_id: int | None, payload: Any | None = None):
-    ae = AuditEvent(event_type=event_type, entity_type=entity_type, entity_id=entity_id, user_id=user_id, payload=payload)
-    db.add(ae)
-    return ae
+@router.post('/settlement/etfs/{etf_id}/redemption-verify/{intent_id}')
+async def verify_redemption_onchain(etf_id: int, intent_id: int, tx_hash: str | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Validate intent exists
+    intent = db.query(DomainETFRedemptionIntent).filter(DomainETFRedemptionIntent.id==intent_id, DomainETFRedemptionIntent.etf_id==etf_id).first()
+    if not intent:
+        raise HTTPException(status_code=404, detail='Intent not found')
+    if not blockchain_service.ensure_initialized():
+        raise HTTPException(status_code=503, detail='Blockchain RPC unavailable')
+    # If tx_hash not provided attempt to locate from most recent REDEMPTION_PROOF audit event
+    if not tx_hash:
+        proof_ev = db.query(AuditEvent).filter(
+            AuditEvent.event_type=='REDEMPTION_PROOF',
+            AuditEvent.entity_type=='REDEMPTION_INTENT',
+            AuditEvent.entity_id==intent.id
+        ).order_by(AuditEvent.id.desc()).first()
+        if proof_ev and isinstance(proof_ev.payload, dict):
+            tx_hash = proof_ev.payload.get('tx_hash')
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail='tx_hash required or submit redemption proof first')
+    # Retrieve receipt and semantic checks
+    receipt = await blockchain_service.get_transaction_receipt(tx_hash)
+    if not receipt:
+        return { 'verified': False, 'reason': 'receipt_not_found' }
+    # Centralized semantic validation
+    validation = validate_redemption_receipt(receipt)
+    if not validation.ok:
+        return { 'verified': False, **validation }
+    block_number = validation.get('block')
+    gas_used = validation.get('gas_used')
+    log_count = validation.get('log_count')
+    # Idempotent success if already verified
+    if intent.verified_onchain:
+        return { 'verified': True, 'block': block_number, 'already': True, 'gas_used': gas_used, 'log_count': log_count }
+    # Mark intent verified and record audit event
+    intent.verified_onchain = True
+    ae = record_audit_event(db, event_type='REDEMPTION_TX_VERIFIED', entity_type='REDEMPTION_INTENT', entity_id=intent.id, user_id=user.id, payload={
+        'etf_id': etf_id,
+        'intent_id': intent_id,
+        'tx_hash': tx_hash,
+        'block': block_number,
+        'gas_used': gas_used,
+        'log_count': log_count
+    })
+    db.commit()
+    return { 'verified': True, 'block': block_number, 'gas_used': gas_used, 'log_count': log_count, 'audit_event_id': ae.id }
+
+@router.get('/settlement/audit-export')
+def audit_export_stream(response: Response, db: Session = Depends(get_db), after_id: int | None = None, limit: int = 5000, verify_integrity: bool = False, user: UserModel = Depends(get_current_user)):
+    # Restrict to admins for full export
+    from app.config import settings as _settings
+    if user.wallet_address.lower() not in _settings.admin_wallets:
+        raise HTTPException(status_code=403, detail='Not authorized')
+    limit = max(1, min(limit, 20000))
+    q = db.query(AuditEvent).order_by(AuditEvent.id.asc())
+    if after_id:
+        q = q.filter(AuditEvent.id > after_id)
+    rows = q.limit(limit).all()
+    # Build JSONL content
+    import json
+    prev_hash = None
+    integrity_ok = True
+    lines = []
+    for r in rows:
+        # Optional integrity verification (recompute digest from previous)
+        if verify_integrity:
+            canonical = json.dumps({
+                'event_type': r.event_type,
+                'entity_type': r.entity_type,
+                'entity_id': r.entity_id,
+                'user_id': r.user_id,
+                'payload': r.payload
+            }, sort_keys=True, separators=(',',':'))
+            expected = sha256(((prev_hash or '') + canonical).encode()).hexdigest()
+            if expected != r.integrity_hash:
+                integrity_ok = False
+            prev_hash = r.integrity_hash
+        lines.append(json.dumps({
+            'id': r.id,
+            'event_type': r.event_type,
+            'entity_type': r.entity_type,
+            'entity_id': r.entity_id,
+            'user_id': r.user_id,
+            'payload': r.payload,
+            'created_at': r.created_at.isoformat(),
+            'integrity_hash': r.integrity_hash
+        }, sort_keys=True))
+    body = '\n'.join(lines) + ('\n' if lines else '')
+    response.headers['Content-Type'] = 'application/jsonl; charset=utf-8'
+    response.headers['X-Next-Cursor'] = str(rows[-1].id) if rows else ''
+    response.headers['X-Integrity-OK'] = 'true' if integrity_ok else 'false'
+    response.headers['Cache-Control'] = 'no-store'
+    return body
+
+@router.get('/settlement/audit-export/stream')
+def audit_export_true_stream(db: Session = Depends(get_db), after_id: int | None = None, batch_size: int = 2000, verify_integrity: bool = False, user: UserModel = Depends(get_current_user)):
+    from app.config import settings as _settings
+    if user.wallet_address.lower() not in _settings.admin_wallets:
+        raise HTTPException(status_code=403, detail='Not authorized')
+    batch_size = max(1, min(batch_size, 10000))
+    import json
+    def gen():
+        prev_hash = None
+        last_id = after_id
+        while True:
+            q = db.query(AuditEvent).order_by(AuditEvent.id.asc())
+            if last_id:
+                q = q.filter(AuditEvent.id > last_id)
+            rows = q.limit(batch_size).all()
+            if not rows:
+                break
+            for r in rows:
+                if verify_integrity:
+                    canonical = json.dumps({
+                        'event_type': r.event_type,
+                        'entity_type': r.entity_type,
+                        'entity_id': r.entity_id,
+                        'user_id': r.user_id,
+                        'payload': r.payload
+                    }, sort_keys=True, separators=(',',':'))
+                    expected = sha256(((prev_hash or '') + canonical).encode()).hexdigest()
+                    r.integrity_ok = (expected == r.integrity_hash)
+                    prev_hash = r.integrity_hash
+                yield json.dumps({
+                    'id': r.id,
+                    'event_type': r.event_type,
+                    'entity_type': r.entity_type,
+                    'entity_id': r.entity_id,
+                    'user_id': r.user_id,
+                    'payload': r.payload,
+                    'created_at': r.created_at.isoformat(),
+                    'integrity_hash': r.integrity_hash,
+                    **({'integrity_ok': r.integrity_ok} if verify_integrity else {})
+                }, sort_keys=True) + '\n'
+            last_id = rows[-1].id
+    return StreamingResponse(gen(), media_type='application/jsonl')
+
 
 @router.get('/settlement/audit-events/export')
 def export_audit_events(limit: int = 1000, offset: int = 0, cursor_after_id: int | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):

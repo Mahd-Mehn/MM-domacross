@@ -255,6 +255,9 @@ def execute_redemption_intent(etf_id: int, intent_id: int, tx_hash: str | None =
     from app.models.database import DomainETFRedemptionIntent as Intent, DomainETFShareFlow as Flow
     intent = db.query(Intent).filter(Intent.id == intent_id, Intent.etf_id == etf_id, Intent.user_id == user.id, Intent.executed_at == None).first()  # noqa: E711
     if not intent: raise HTTPException(status_code=404, detail='Intent not found or already executed')
+    # Require prior on-chain verification
+    if not getattr(intent, 'verified_onchain', None):
+        raise HTTPException(status_code=400, detail='Redemption intent not yet on-chain verified')
     etf = db.query(DomainETFModel).filter(DomainETFModel.id == etf_id).first()
     if not etf: raise HTTPException(status_code=404, detail='ETF not found')
     holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()

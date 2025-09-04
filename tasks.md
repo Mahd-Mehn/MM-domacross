@@ -44,10 +44,10 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 
 ## 4. Settlement & Provenance
 
-- [ ] On-Chain Event Ingestion Loop (ingest transfers / trades / burns)
-- [ ] Settlement Proof Verification (tx hash cross-check before redemption finalize)
-- [ ] State Audit Export (JSONL ledger of competition state changes)
-- [ ] Merkle Root Snapshot Generation (periodic) + endpoint
+- [~] On-Chain Event Ingestion Loop (block height sync + verification semantics; real transfer/trade/burn ingestion pending)
+- [X] Settlement Proof Verification (tx hash semantic cross-check & gating before redemption finalize, gas/log/topic checks)
+- [~] State Audit Export (streaming JSONL endpoints implemented; pagination & integrity checks present; needs docs + incremental resume tests)
+- [X] Merkle Root Snapshot Generation (periodic scheduler + endpoint + proofs + signing)
 
 ## 5. Incentives & Liquidity Mining
 
@@ -155,6 +155,7 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 - 2025-09-04: Phase 1 Core Competitive & Valuation Loop baseline completed (live leaderboard, metrics suite, reward distribution, PnL, EVENTS documentation).
 - 2025-09-04: Consolidated reward distribution test; duplicate test file removed.
 - 2025-09-04: Added basic epoch distribution endpoint & WebSocket epoch_distributed event.
+- 2025-09-04: Implemented periodic Merkle snapshot scheduler + stub chain ingestion audit events; unified fee event proofs endpoint & frontend integration with optimistic events.
 
 ---
 

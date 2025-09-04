@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     doma_orderbook_base_url: Optional[str] = Field(default=None, env="DOMA_ORDERBOOK_BASE_URL")
     doma_subgraph_url: Optional[str] = Field(default=None, env="DOMA_SUBGRAPH_URL")
 
+    # Settlement / Redemption validation config
+    redemption_contract_address: Optional[str] = Field(default=None, env="REDEMPTION_CONTRACT_ADDRESS")
+    redemption_expected_event_topic0: Optional[str] = Field(default=None, env="REDEMPTION_EXPECTED_EVENT_TOPIC0")  # keccak topic0 hash of Redemption event
+    redemption_min_logs: int = Field(default=1, env="REDEMPTION_MIN_LOGS")
+    redemption_min_gas_used: int = Field(default=21000, env="REDEMPTION_MIN_GAS_USED")
+    redemption_min_value_wei: Optional[int] = Field(default=None, env="REDEMPTION_MIN_VALUE_WEI")
+    redemption_weth_contract_address: Optional[str] = Field(default=None, env="REDEMPTION_WETH_CONTRACT_ADDRESS")
+
     valuation_model_version: str = Field(default="v1.0", env="VALUATION_MODEL_VERSION")
     # Valuation engine weights (v1)
     valuation_weight_trade: float = Field(default=0.45, env="VALUATION_WEIGHT_TRADE")

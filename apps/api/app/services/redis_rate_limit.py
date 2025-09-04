@@ -61,18 +61,18 @@ def consume_token(bucket: str, capacity: int = 120, refill_rate: float = 2.0) ->
         # fallback to allow (do not block if redis absent)
         return True
     global _cached_sha
-  try:
-    if not _cached_sha:
-      loaded = client.script_load(SCRIPT)
-      if isinstance(loaded, bytes):
-        loaded = loaded.decode()
-      _cached_sha = str(loaded)
-    now_ms = int(time.time() * 1000)
-    ok = client.evalsha(_cached_sha, 1, f"rl:{bucket}", str(capacity), str(int(refill_rate * 1000)), str(now_ms))
     try:
-      ok_int = int(ok)  # type: ignore[arg-type]
+        if not _cached_sha:
+            loaded = client.script_load(SCRIPT)
+            if isinstance(loaded, bytes):
+                loaded = loaded.decode()
+            _cached_sha = str(loaded)
+            now_ms = int(time.time() * 1000)
+            ok = client.evalsha(_cached_sha, 1, f"rl:{bucket}", str(capacity), str(int(refill_rate * 1000)), str(now_ms))
+        try:
+            ok_int = int(ok)  # type: ignore[arg-type]
+        except Exception:
+            ok_int = 0
+            return ok_int == 1
     except Exception:
-      ok_int = 0
-    return ok_int == 1
-  except Exception:
-    return True
+        return True
