@@ -12,3 +12,5 @@ alembic
 web3
 cryptography
 httpx
+pytest
+pytest-asyncio

@@ -15,6 +15,9 @@ class OrderbookSnapshotService:
         self.interval_seconds = 60
         self._client: httpx.AsyncClient | None = None
         self._running = False
+    self.total_requests = 0
+    self.total_failures = 0
+    self.total_snapshots = 0
 
     def _headers(self) -> Dict[str, str]:
         h = {"Accept": "application/json"}
@@ -33,13 +36,19 @@ class OrderbookSnapshotService:
         client = await self._get_client()
         # Hypothetical path; adjust when exact spec known
         url = f"{self.base_url.rstrip('/')}/v1/orderbook/{domain_name}"
-        resp = await client.get(url)
-        resp.raise_for_status()
-        return resp.json()
+        self.total_requests += 1
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            self.total_failures += 1
+            raise
 
     def persist_snapshot(self, db: Session, domain_name: str, side: str, price: Decimal, size: Decimal) -> None:
         snap = OrderbookSnapshot(domain_name=domain_name, side=side, price=price, size=size)
         db.add(snap)
+        self.total_snapshots += 1
 
     async def snapshot_once(self, db: Session, domain_names: List[str]) -> Dict[str, Any]:
         collected = 0
@@ -55,6 +64,9 @@ class OrderbookSnapshotService:
                 for p, s in asks[:10]:
                     self.persist_snapshot(db, name, 'SELL', Decimal(str(p)), Decimal(str(s)))
                     collected += 1
+                dom = db.query(Domain).filter(Domain.name==name).first()
+                if dom:
+                    dom.last_orderbook_snapshot_at = datetime.now(timezone.utc)
             except Exception:
                 # swallow per-domain errors
                 pass

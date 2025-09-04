@@ -86,8 +86,10 @@ class DomainETFBase(BaseModel):
     description: str | None = None
     competition_id: int | None = None
 
+
 class DomainETFCreate(DomainETFBase):
     positions: list[tuple[str, int]]  # list of (domain_name, weight_bps)
+
 
 class DomainETF(DomainETFBase):
     id: int
@@ -95,9 +97,16 @@ class DomainETF(DomainETFBase):
     total_shares: Decimal | None = None
     nav_last: Decimal | None = None
     nav_updated_at: datetime | None = None
+    management_fee_bps: int | None = None
+    performance_fee_bps: int | None = None
+    fee_accrued: Decimal | None = None
+    nav_high_water: Decimal | None = None
+    creation_fee_bps: int | None = None
+    redemption_fee_bps: int | None = None
 
     class Config:
         from_attributes = True
+
 
 class DomainETFPosition(BaseModel):
     id: int
@@ -108,13 +117,16 @@ class DomainETFPosition(BaseModel):
     class Config:
         from_attributes = True
 
+
 class DomainETFShare(BaseModel):
     id: int
     etf_id: int
     user_id: int
     shares: Decimal
+
     class Config:
         from_attributes = True
+
 
 class DomainETFShareFlow(BaseModel):
     id: int
@@ -126,19 +138,24 @@ class DomainETFShareFlow(BaseModel):
     nav_per_share: Decimal
     settlement_order_ids: list[str] | None = None
     created_at: datetime
+
     class Config:
         from_attributes = True
+
 
 class ETFListParams(BaseModel):
     limit: int = 20
     offset: int = 0
     competition_id: int | None = None
 
+
 class ETFIssueRedeem(BaseModel):
     shares: Decimal
 
+
 class ETFNavUpdate(BaseModel):
     nav: Decimal
+
 
 class DomainETFRedemptionIntent(BaseModel):
     id: int
@@ -148,5 +165,31 @@ class DomainETFRedemptionIntent(BaseModel):
     nav_per_share_snapshot: Decimal
     created_at: datetime
     executed_at: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class DomainETFFeeEvent(BaseModel):
+    id: int
+    etf_id: int
+    event_type: str
+    amount: Decimal
+    nav_per_share_snapshot: Decimal | None = None
+    meta: dict | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DomainETFRevenueShare(BaseModel):
+    id: int
+    etf_id: int
+    user_id: int
+    amount: Decimal
+    fee_event_id: int
+    created_at: datetime
+
     class Config:
         from_attributes = True

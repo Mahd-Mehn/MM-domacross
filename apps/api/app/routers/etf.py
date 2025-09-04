@@ -8,6 +8,7 @@ from app.models.database import User as UserModel
 from datetime import datetime, timezone
 from decimal import Decimal
 from datetime import timedelta
+from app.services.nav_service import nav_service
 
 router = APIRouter()
 
@@ -29,8 +30,14 @@ def create_etf(payload: DomainETFCreate, creation_unit_size: Decimal | None = No
     db.add(etf)
     db.flush()
     # Ensure domains exist
+    # Optional whitelist enforcement: if any active whitelist entries exist, restrict to them
+    from app.models.database import DomainWhitelist
+    whitelist_active = db.query(DomainWhitelist).filter(DomainWhitelist.active == True).all()  # noqa: E712
+    allowed_set = {w.domain_name for w in whitelist_active}
     for domain_name, weight in payload.positions:
         name_l = domain_name.lower()
+        if allowed_set and name_l not in allowed_set:
+            raise HTTPException(status_code=400, detail=f'Domain {name_l} not whitelisted')
         dom = db.query(DomainModel).filter(DomainModel.name == name_l).first()
         if not dom:
             dom = DomainModel(name=name_l)
@@ -93,9 +100,14 @@ def recompute_nav(etf_id: int, db: Session = Depends(get_db), user: UserModel = 
     etf = db.query(DomainETFModel).filter(DomainETFModel.id == etf_id).first()
     if not etf: raise HTTPException(status_code=404, detail='ETF not found')
     if etf.owner_user_id != user.id: raise HTTPException(status_code=403, detail='Not owner')
+    previous_nav = etf.nav_last or Decimal(0)
     nav = _compute_nav(db, etf)
     etf.nav_last = nav
     etf.nav_updated_at = datetime.now(timezone.utc)
+    # Accrue management fee pro-rata (now handled in nav service; keep legacy simplified accrual removed)
+    # Performance fee if nav increased (handled in nav service). Here just update high-water if absent.
+    if etf.nav_high_water is None or nav > (etf.nav_high_water or Decimal(0)):
+        etf.nav_high_water = nav
     db.add(etf)
     db.commit()
     db.refresh(etf)
@@ -139,6 +151,11 @@ def issue_shares(etf_id: int, payload: ETFIssueRedeem, cash_paid: Decimal | None
     from app.models.database import DomainETFShareFlow as Flow
     flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='ISSUE', shares=payload.shares, cash_value=cash_paid, nav_per_share=nav_per_share)
     db.add(flow)
+    # Apply creation fee
+    if etf.creation_fee_bps:
+        fee = (required_cash * Decimal(etf.creation_fee_bps) / Decimal(10000)).quantize(Decimal('0.00000001'))
+        if fee > 0:
+            etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
     db.commit()
     db.refresh(holding)
     return holding
@@ -168,6 +185,11 @@ def redeem_shares(etf_id: int, payload: ETFIssueRedeem, cash_received: Decimal |
     from app.models.database import DomainETFShareFlow as Flow
     flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='REDEEM', shares=payload.shares, cash_value=cash_received, nav_per_share=nav_per_share)
     db.add(flow)
+    # Apply redemption fee
+    if etf.redemption_fee_bps:
+        fee = (owed_cash * Decimal(etf.redemption_fee_bps) / Decimal(10000)).quantize(Decimal('0.00000001'))
+        if fee > 0:
+            etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
     db.commit()
     db.refresh(holding)
     return holding
@@ -180,6 +202,9 @@ def create_redemption_intent(etf_id: int, payload: ETFIssueRedeem, db: Session =
     holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()
     if not holding or holding.shares < payload.shares:  # type: ignore
         raise HTTPException(status_code=400, detail='Insufficient shares')
+    # Enforce lock / vesting (can't even create intent if still locked)
+    if holding.lock_until and datetime.now(timezone.utc) < holding.lock_until:
+        raise HTTPException(status_code=400, detail='Shares are still locked')
     # snapshot nav per share. Allow zero NAV; only reject if nav is None OR total_shares is None/zero
     if etf.nav_last is None or etf.total_shares is None or etf.total_shares == 0:
         raise HTTPException(status_code=400, detail='NAV unavailable')
@@ -209,6 +234,32 @@ def execute_redemption_intent(etf_id: int, intent_id: int, tx_hash: str | None =
     settlement_order_ids = None
     if payload and isinstance(payload, dict):
         settlement_order_ids = payload.get('settlement_order_ids')
+        if settlement_order_ids is not None:
+            if not isinstance(settlement_order_ids, list) or any(not isinstance(x, str) or not x.strip() for x in settlement_order_ids):
+                raise HTTPException(status_code=400, detail='settlement_order_ids must be a non-empty list of strings')
+            # Deduplicate while preserving order
+            seen = set()
+            deduped: list[str] = []
+            for oid in settlement_order_ids:
+                if oid not in seen:
+                    seen.add(oid)
+                    deduped.append(oid)
+            settlement_order_ids = deduped
+            # Validate they exist in listings or offers (external_order_id)
+            from app.models.database import Listing, Offer
+            found_ids = set()
+            if settlement_order_ids:
+                q_list = db.query(Listing.external_order_id).filter(Listing.external_order_id.in_(settlement_order_ids)).all()
+                q_offer = db.query(Offer.external_order_id).filter(Offer.external_order_id.in_(settlement_order_ids)).all()
+                for (eid,) in q_list + q_offer:  # type: ignore
+                    if eid:
+                        found_ids.add(eid)
+                if len(found_ids) != len(settlement_order_ids):
+                    missing = [i for i in settlement_order_ids if i not in found_ids]
+                    raise HTTPException(status_code=400, detail=f'Unknown settlement order ids: {missing}')
+    # Require tx_hash for audit (simplified check)
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail='tx_hash required for settlement proof')
     flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='REDEEM', shares=intent.shares, cash_value=intent.shares * intent.nav_per_share_snapshot, nav_per_share=intent.nav_per_share_snapshot, settlement_order_ids=settlement_order_ids)
     db.add(flow)
     db.add(intent)
@@ -291,3 +342,11 @@ def my_shares(etf_id: int, db: Session = Depends(get_db), user: UserModel = Depe
     if not holding:
         return { 'etf_id': etf_id, 'shares': '0', 'lock_until': None }
     return { 'etf_id': etf_id, 'shares': str(holding.shares), 'lock_until': holding.lock_until.isoformat() if holding.lock_until else None }
+
+@router.get('/etfs/{etf_id}/apy')
+def get_apy(etf_id: int, lookback_days: int = 30, db: Session = Depends(get_db)):
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id==etf_id).first()
+    if not etf:
+        raise HTTPException(status_code=404, detail='ETF not found')
+    apy = nav_service.estimate_apy(db, etf_id, lookback_days=lookback_days)
+    return { 'etf_id': etf_id, 'apy': str(apy) if apy is not None else None, 'lookback_days': lookback_days }

@@ -3,12 +3,182 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 from typing import Optional
 from app.database import get_db
-from app.models.database import Listing, Offer, Domain, Trade, Participant, Competition
+from app.models.database import Listing, Offer, Domain, Trade, Participant, Competition, TradeRiskFlag, CompetitionReward, CompetitionEpoch, ParticipantHolding
 from app.deps.auth import get_current_user
 from app.models.database import User as UserModel
 from datetime import datetime, timezone, timedelta
+from app.broadcast import get_sync_broadcast
+from app.services.metrics_service import invalidate_leaderboard_cache
 
 router = APIRouter()
+
+def _post_trade_hooks(db: Session, trade: Trade, domain_name: str):
+    """Apply risk heuristics and update competition reward points.
+    Heuristics (simple):
+    - Wash trade: same wallet executes BUY then SELL (or vice versa) on same domain within 120s.
+    - Rapid flip: more than 3 trades on same domain by same participant in 10m.
+    Reward points: volume contribution = price; simple Sharpe-like placeholder omitted.
+    """
+    # Fetch participant & related competition
+    from app.models.database import Participant as P, Competition as C, Trade as T, TradeRiskFlag, CompetitionReward, CompetitionEpoch
+    part = db.query(P).filter(P.id == trade.participant_id).first()
+    if not part:
+        return
+    # Recent trades for risk analysis
+    now = datetime.now(timezone.utc)
+    window_120s = now - timedelta(seconds=120)
+    window_10m = now - timedelta(minutes=10)
+    recent_trades = db.query(T).filter(T.participant_id==trade.participant_id, T.domain_token_id==domain_name, T.id != trade.id, T.timestamp >= window_10m).all()
+    # Wash trade detection: opposite side within 120s
+    broadcast = get_sync_broadcast()
+    # Track whether to emit leaderboard delta later
+    leaderboard_comp_id: int | None = None
+    for rt in recent_trades:
+        if rt.trade_type != trade.trade_type and rt.timestamp >= window_120s:
+            flag = TradeRiskFlag(trade_id=trade.id, flag_type='WASH_LIKELY', details={'against_trade_id': rt.id})
+            db.add(flag)
+            if broadcast:
+                broadcast({'type': 'risk_flag', 'trade_id': trade.id, 'flag_type': 'WASH_LIKELY'})
+            break
+    # Rapid flip detection
+    flips = sum(1 for rt in recent_trades if rt.trade_type != trade.trade_type)
+    if flips >= 3:
+        rf = TradeRiskFlag(trade_id=trade.id, flag_type='RAPID_FLIP', details={'flip_count': flips})
+        db.add(rf)
+        if broadcast:
+            broadcast({'type': 'risk_flag', 'trade_id': trade.id, 'flag_type': 'RAPID_FLIP'})
+    # Points update: find active epoch
+    comp = db.query(C).join(P, P.competition_id == C.id).filter(P.id==part.id).first()
+    if not comp:
+        return
+    ep = db.query(CompetitionEpoch).filter(CompetitionEpoch.competition_id==comp.id, CompetitionEpoch.start_time <= now, CompetitionEpoch.end_time >= now).first()
+    if not ep:
+        return
+    # Upsert reward row (need trade_value first)
+    reward = db.query(CompetitionReward).filter(CompetitionReward.epoch_id==ep.id, CompetitionReward.user_id==part.user_id).first()
+    trade_value = trade.price or 0
+    # Maintain holdings after determining trade_value
+    holding = db.query(ParticipantHolding).filter(ParticipantHolding.participant_id==part.id, ParticipantHolding.domain_name==domain_name).first()
+    if trade.trade_type == 'BUY':
+        if not holding:
+            holding = ParticipantHolding(participant_id=part.id, domain_name=domain_name, quantity=1, avg_cost=trade_value)
+            db.add(holding)
+        else:
+            new_q = (holding.quantity or 0) + 1
+            holding.avg_cost = ((holding.avg_cost or 0)*(holding.quantity or 0) + trade_value) / new_q  # type: ignore
+            holding.quantity = new_q
+    elif trade.trade_type == 'SELL':
+        if holding and (holding.quantity or 0) > 0:
+            holding.quantity = (holding.quantity or 0) - 1  # type: ignore
+            if holding.quantity <= 0:
+                holding.quantity = 0
+    # Update participant realized/unrealized pnl (placeholder: treat BUY as negative cash flow, SELL as positive)
+    if trade.trade_type == 'BUY':
+        part.realized_pnl = (part.realized_pnl or 0) - trade_value  # type: ignore
+    else:
+        part.realized_pnl = (part.realized_pnl or 0) + trade_value  # type: ignore
+    # Simplistic unrealized pnl left unchanged (would require current valuations)
+    # Compute risk-adjusted metrics inputs
+    # Turnover ratio ~ cumulative volume / portfolio_value (avoid divide by zero)
+    existing_volume = reward.volume if reward else 0
+    new_cum_volume = (existing_volume or 0) + trade_value  # type: ignore
+    portfolio_val = part.portfolio_value or 0
+    turnover_ratio = (new_cum_volume / portfolio_val) if portfolio_val else 0
+    # Concentration index placeholder: inverse of number of domains touched (maintain simple cardinality via reward.factors if needed)
+    # For now approximate with square root dampening of turnover
+    from decimal import Decimal as D
+    # True concentration via HHI on holdings weights
+    hhi = D(0)
+    holdings = db.query(ParticipantHolding).filter(ParticipantHolding.participant_id==part.id, ParticipantHolding.quantity > 0).all()
+    if holdings:
+        total_val = D(0)
+        for h in holdings:
+            dom = db.query(Domain).filter(Domain.name==h.domain_name).first()
+            estimated = D(dom.last_estimated_value) if dom and dom.last_estimated_value is not None else D(h.avg_cost or 0)
+            total_val += estimated
+        if total_val > 0:
+            for h in holdings:
+                dom = db.query(Domain).filter(Domain.name==h.domain_name).first()
+                estimated = D(dom.last_estimated_value) if dom and dom.last_estimated_value is not None else D(h.avg_cost or 0)
+                w = estimated / total_val
+                hhi += w * w
+    concentration_index = hhi
+    # Enhanced Sharpe-like: realized_pnl / sqrt(cum_volume) with stability floor
+    import math
+    sharpe_like = None
+    if new_cum_volume and abs(float(new_cum_volume)) > 0:
+        try:
+            sharpe_like = float(part.realized_pnl or 0) / math.sqrt(float(new_cum_volume))  # type: ignore
+        except Exception:
+            sharpe_like = None
+    # Normalize Sharpe into [-1,1] using x/(1+|x|)
+    sharpe_norm = 0.0
+    if sharpe_like is not None:
+        try:
+            sharpe_norm = float(sharpe_like) / (1 + abs(float(sharpe_like)))
+        except Exception:
+            sharpe_norm = 0.0
+    from app.config import settings as cfg
+    # Turnover component: encourage some activity but clamp at 1
+    turnover_norm = min(float(turnover_ratio), 1.0)
+    # Concentration reward: prefer diversification (1 - HHI) where HHI in [0,1]
+    diversification = 1.0 - float(concentration_index or 0)
+    if diversification < 0:
+        diversification = 0.0
+    # Weighted multiplier base
+    raw_multiplier = 1.0 
+    raw_multiplier += cfg.reward_sharpe_weight * sharpe_norm
+    raw_multiplier += cfg.reward_turnover_weight * turnover_norm
+    raw_multiplier += cfg.reward_concentration_weight * diversification
+    # Clamp multiplier
+    raw_multiplier = max(cfg.reward_min_multiplier, min(cfg.reward_max_multiplier, raw_multiplier))
+    incremental_points = trade_value * raw_multiplier
+    if not reward:
+        reward = CompetitionReward(
+            competition_id=comp.id,
+            epoch_id=ep.id,
+            user_id=part.user_id,
+            points=incremental_points,
+            volume=trade_value,
+            pnl=part.realized_pnl,
+            sharpe_like=sharpe_like,
+            turnover_ratio=turnover_ratio,
+            concentration_index=concentration_index,
+        )
+        db.add(reward)
+    else:
+        reward.points = (reward.points or 0) + incremental_points  # type: ignore
+        reward.volume = (reward.volume or 0) + trade_value  # type: ignore
+        reward.pnl = part.realized_pnl
+        reward.sharpe_like = sharpe_like
+        reward.turnover_ratio = turnover_ratio
+        reward.concentration_index = concentration_index
+    db.flush()
+    leaderboard_comp_id = comp.id
+    # After reward/points update, broadcast leaderboard delta for this participant (simplified rank computation)
+    if leaderboard_comp_id and broadcast:
+        # Compute rank with window function approximation via ordering
+        from app.models.database import Participant as P2
+        rows = (db.query(P2.id, P2.user_id, P2.portfolio_value)
+                .filter(P2.competition_id==leaderboard_comp_id)
+                .order_by(P2.portfolio_value.desc())
+                .limit(50).all())  # only top 50 for delta context
+        rank = None
+        for idx, r in enumerate(rows, start=1):
+            if r.id == part.id:
+                rank = idx
+                break
+        broadcast({
+            'type': 'leaderboard_delta',
+            'competition_id': leaderboard_comp_id,
+            'updates': [{
+                'participant_id': part.id,
+                'user_id': part.user_id,
+                'portfolio_value': str(part.portfolio_value or 0),
+                'rank': rank,
+            }]
+        })
+    invalidate_leaderboard_cache(leaderboard_comp_id)
 
 def _get_or_create_domain(db: Session, name: str) -> Domain:
     name_l = name.lower()
@@ -84,6 +254,12 @@ def record_buy(
                 trade_type = 'BUY' if part.user_id == user.id else 'SELL'
                 tr = Trade(participant_id=part.id, domain_token_address=contract_placeholder(lst.domain_name), domain_token_id=lst.domain_name, trade_type=trade_type, price=trade_price, tx_hash=tx_hash or order_id or "local")
                 db.add(tr)
+                db.flush()
+                _post_trade_hooks(db, tr, lst.domain_name)
+                # broadcast trade
+                broadcast = get_sync_broadcast()
+                if broadcast:
+                    broadcast({ 'type': 'trade', 'domain': lst.domain_name, 'price': str(trade_price), 'side': trade_type })
     db.commit()
     return { 'status': 'ok', 'order_id': order_id }
 
@@ -192,6 +368,11 @@ def accept_offer(
             tx_hash=tx_hash or external_order_id or f"offer-{off.id}"
         )
         db.add(tr)
+        db.flush()
+        _post_trade_hooks(db, tr, off.domain_name)
+        broadcast = get_sync_broadcast()
+        if broadcast:
+            broadcast({ 'type': 'trade', 'domain': off.domain_name, 'price': str(trade_price), 'side': trade_type })
     db.commit()
     return { 'status': 'accepted', 'offer_id': off.id }
 

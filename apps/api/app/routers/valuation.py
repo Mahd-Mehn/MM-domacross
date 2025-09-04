@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 from app.database import get_db
 from app.services.valuation_service import valuation_service
-from app.models.database import Listing, Offer, Domain
+from app.models.database import Listing, Offer, Domain, DomainValuationOverride, Valuation, DomainValuationDispute
+from datetime import datetime, timezone, timedelta
 
 router = APIRouter()
 
@@ -37,4 +38,128 @@ async def valuation_batch(payload: ValuationBatchRequest, db: Session = Depends(
             tld_counts[tld] = tld_counts.get(tld, 0) + 1
     context = {"listings": listings_map, "offers": offers_map, "floors": floors, "tld_counts": tld_counts}
     results = valuation_service.value_domains(db, payload.domains, context)
+    # Broadcast each valuation update
+    try:
+        from app.broadcast import get_sync_broadcast
+        bc = get_sync_broadcast()
+        if bc:
+            for r in results:
+                bc({ 'type': 'valuation_update', 'domain': r['domain'], 'value': r['value'], 'model_version': r['model_version'] })
+    except Exception:
+        pass
     return {"results": results}
+
+@router.get('/valuation/latest')
+async def latest_valuations(domain: str, lookback_minutes: int = 1440, db: Session = Depends(get_db)):
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
+    rows = db.query(Valuation).filter(Valuation.domain_name==domain.lower(), Valuation.created_at >= cutoff).order_by(Valuation.created_at.desc()).limit(50).all()
+    out = []
+    for r in rows:
+        age_sec = (datetime.now(timezone.utc) - r.created_at).total_seconds() if r.created_at else None
+        stale = age_sec is not None and age_sec > 3600
+        out.append({ 'value': str(r.value), 'created_at': r.created_at.isoformat() if r.created_at else None, 'model_version': r.model_version, 'factors': r.factors, 'stale': stale })
+    return { 'domain': domain.lower(), 'valuations': out }
+
+@router.get('/valuation/factors')
+async def valuation_factors(domain: str, db: Session = Depends(get_db)):
+    # Return latest valuation plus raw component breakdown (already stored in factors) + override if any
+    val = db.query(Valuation).filter(Valuation.domain_name==domain.lower()).order_by(Valuation.created_at.desc()).first()
+    override = db.query(DomainValuationOverride).filter(DomainValuationOverride.domain_name==domain.lower()).first()
+    return {
+        'domain': domain.lower(),
+        'latest': {
+            'value': str(val.value) if val else None,
+            'model_version': val.model_version if val else None,
+            'factors': val.factors if val else None,
+        },
+        'override': {
+            'value': str(override.override_value),
+            'reason': override.reason,
+            'expires_at': override.expires_at.isoformat() if override and override.expires_at else None
+        } if override else None
+    }
+
+class ValuationOverrideRequest(BaseModel):
+    domain: str
+    value: str
+    reason: str | None = None
+    ttl_minutes: int | None = None
+
+class ValuationDisputeRequest(BaseModel):
+    domain: str
+    reason: str | None = None
+
+class ValuationDisputeVoteRequest(BaseModel):
+    dispute_id: int
+    vote: bool = True  # only positive votes count for simplicity
+
+from app.config import settings as app_settings
+from app.deps.auth import get_current_user
+
+@router.post('/valuation/override')
+async def create_override(payload: ValuationOverrideRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if (user.wallet_address or '').lower() not in set(app_settings.admin_wallets):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail='Not authorized')
+    dom = db.query(Domain).filter(Domain.name==payload.domain.lower()).first()
+    if not dom:
+        dom = Domain(name=payload.domain.lower())
+        db.add(dom); db.flush()
+    existing = db.query(DomainValuationOverride).filter(DomainValuationOverride.domain_name==payload.domain.lower()).first()
+    from decimal import Decimal
+    from datetime import timedelta
+    expires_at = None
+    if payload.ttl_minutes:
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=payload.ttl_minutes)
+    if existing:
+        existing.override_value = Decimal(payload.value)
+        existing.reason = payload.reason
+        existing.expires_at = expires_at
+        db.add(existing)
+    else:
+        override = DomainValuationOverride(domain_name=payload.domain.lower(), override_value=Decimal(payload.value), reason=payload.reason, expires_at=expires_at, created_by_user_id=user.id)
+        db.add(override)
+    db.commit()
+    return { 'status': 'ok' }
+
+@router.post('/valuation/dispute')
+async def create_dispute(payload: ValuationDisputeRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    dom = db.query(Domain).filter(Domain.name==payload.domain.lower()).first()
+    if not dom:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail='Domain not found')
+    existing_open = db.query(DomainValuationDispute).filter(DomainValuationDispute.domain_name==payload.domain.lower(), DomainValuationDispute.status=='OPEN').first()
+    if existing_open:
+        return {'status': 'exists', 'dispute_id': existing_open.id}
+    dispute = DomainValuationDispute(domain_name=payload.domain.lower(), reason=payload.reason, created_by_user_id=getattr(user, 'id', None))
+    db.add(dispute); db.commit(); db.refresh(dispute)
+    return {'status': 'ok', 'dispute_id': dispute.id}
+
+@router.post('/valuation/dispute/vote')
+async def vote_dispute(payload: ValuationDisputeVoteRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    dispute = db.query(DomainValuationDispute).filter(DomainValuationDispute.id==payload.dispute_id).first()
+    if not dispute or dispute.status != 'OPEN':
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail='Dispute not open')
+    if payload.vote:
+        dispute.votes = (dispute.votes or 0) + 1
+        if dispute.votes >= app_settings.valuation_dispute_vote_threshold:
+            # stays OPEN until admin resolves; but flagged via factors
+            pass
+    db.add(dispute); db.commit(); db.refresh(dispute)
+    return {'status': 'ok', 'votes': dispute.votes}
+
+@router.post('/valuation/dispute/resolve')
+async def resolve_dispute(dispute_id: int, accept: bool = True, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    # admin only
+    if (user.wallet_address or '').lower() not in set(app_settings.admin_wallets):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail='Not authorized')
+    dispute = db.query(DomainValuationDispute).filter(DomainValuationDispute.id==dispute_id).first()
+    if not dispute or dispute.status != 'OPEN':
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail='Dispute not open')
+    dispute.status = 'RESOLVED' if accept else 'REJECTED'
+    dispute.resolved_at = datetime.now(timezone.utc)
+    db.add(dispute); db.commit()
+    return {'status': 'ok', 'final_status': dispute.status}

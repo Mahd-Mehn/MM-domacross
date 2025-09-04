@@ -40,6 +40,8 @@ export default function ETFDetailPage(){
   const flowsQ = useQuery({ queryKey:['etf-flows', id], queryFn:()=> apiJson<Flow[]>(`/api/v1/etfs/${id}/flows`, { headers: authHeader() })});
   const [issueOpen, setIssueOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
+  const [redeemShares, setRedeemShares] = useState('');
+  const [redeemSettlementIds, setRedeemSettlementIds] = useState('');
   const navPerShareQ = useQuery({ queryKey:['etf-navps', id], queryFn:()=> apiJson<{etf_id:number; nav_per_share:string|null}>(`/api/v1/etfs/${id}/nav/per-share`, { headers: authHeader() }), refetchInterval: 15000 });
   const [toasts, setToasts] = useState<{id:number; msg:string; type:'error'|'info'}[]>([]);
   function pushToast(msg:string, type:'error'|'info'='info'){ setToasts(t=>[...t,{id:Date.now()+Math.random(), msg, type}]); }
@@ -66,7 +68,9 @@ export default function ETFDetailPage(){
   async function handleRedeem(e:React.FormEvent<HTMLFormElement>){
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const shares = f.get('shares') as string;
+    const shares = (f.get('shares') as string)||redeemShares;
+    const settlementCsv = (f.get('settlement_ids') as string)||redeemSettlementIds;
+    const settlement_order_ids = settlementCsv.split(',').map(s=>s.trim()).filter(Boolean);
     try {
   const intent: any = await redeemIntentMut.mutateAsync({ shares });
       // Placeholder settlement with SDK (simulate liquidation)
@@ -75,8 +79,8 @@ export default function ETFDetailPage(){
         try { await client.settleRedemption?.({ etfId: Number(id), intentId: intent.id, shares }); } catch(err){ pushToast('SDK settlement failed (continuing)', 'error'); }
       }
       // Fake settlement order ids (would come from SDK actions)
-      const settlement_order_ids = client?.lastOrderIds || [];
-  await redeemExecuteMut.mutateAsync({ intentId: intent.id as number, settlement_order_ids }, { onSuccess:()=> pushToast('Redeemed shares','info'), onError:()=> pushToast('Redeem execute failed','error') });
+      const combinedIds = [...(client?.lastOrderIds||[]), ...settlement_order_ids];
+  await redeemExecuteMut.mutateAsync({ intentId: intent.id as number, settlement_order_ids: combinedIds.length?combinedIds:undefined }, { onSuccess:()=> { pushToast('Redeemed shares','info'); setRedeemSettlementIds(''); setRedeemShares(''); }, onError:(err:any)=> pushToast(err?.detail||'Redeem execute failed','error') });
     } catch(err){ pushToast('Redeem intent failed','error'); }
   }
   if(etfQ.isLoading) return <div className="text-slate-400 text-sm">Loading ETF...</div>;
@@ -200,9 +204,11 @@ export default function ETFDetailPage(){
               <button onClick={()=>setRedeemOpen(false)} className="text-slate-400 hover:text-slate-200 text-xs">Close</button>
             </div>
             <form onSubmit={handleRedeem} className="space-y-4 text-sm">
-              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Shares</span><input name="shares" required className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="50" onChange={(ev)=>{ /* form-level calc below */ }} /></label>
-              <div className="text-xs text-slate-400">
-                NAV/Share: {navPerShareQ.data?.nav_per_share ?? '—'} {navPerShareQ.data?.nav_per_share && 'ETH'}
+              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Shares</span><input name="shares" value={redeemShares} onChange={e=>setRedeemShares(e.target.value)} required className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="50" /></label>
+              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Settlement Order IDs (comma separated, optional)</span><input name="settlement_ids" value={redeemSettlementIds} onChange={e=>setRedeemSettlementIds(e.target.value)} className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="ord1,ord2" /></label>
+              <div className="text-xs text-slate-400 space-y-1">
+                <div>NAV/Share: {navPerShareQ.data?.nav_per_share ?? '—'} {navPerShareQ.data?.nav_per_share && 'ETH'}</div>
+                <div>Estimated Cash: { ( ()=> { const nav = parseFloat(navPerShareQ.data?.nav_per_share||''); const sh = parseFloat(redeemShares||''); if(!isNaN(nav) && !isNaN(sh)) return (nav*sh).toFixed(8)+' ETH'; return '—'; })() }</div>
               </div>
               {(redeemIntentMut.error || redeemExecuteMut.error) && <div className="text-red-400 text-xs">Redeem failed.</div>}
               <div className="flex justify-end gap-2 pt-2">

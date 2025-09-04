@@ -31,7 +31,7 @@ def test_etf_issue_redeem_intent_execute(client, auth_token):
     intent_id = r.json()["id"]
 
     # Execute redemption intent
-    r = client.post(f"/api/v1/etfs/{etf_id}/redeem/execute/{intent_id}", headers=headers)
+    r = client.post(f"/api/v1/etfs/{etf_id}/redeem/execute/{intent_id}?tx_hash=0xfeedface", headers=headers)
     assert r.status_code == 200, r.text
 
     # Check remaining holdings by issuing a flow listing

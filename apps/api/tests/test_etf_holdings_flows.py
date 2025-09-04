@@ -34,8 +34,8 @@ def test_etf_holdings_and_flows(client, auth_token):
     assert r.status_code == 200, r.text
     intent_id = r.json()["id"]
 
-    # Execute redemption with dummy settlement ids
-    r = client.post(f"/api/v1/etfs/{etf_id}/redeem/execute/{intent_id}", json={"settlement_order_ids": ["ord1","ord2"]}, headers=headers)
+    # Execute redemption (no settlement ids provided since validation now checks existence)
+    r = client.post(f"/api/v1/etfs/{etf_id}/redeem/execute/{intent_id}?tx_hash=0xdeadbeef", json={}, headers=headers)
     assert r.status_code == 200, r.text
 
     # Flows list contains ISSUE and REDEEM with settlement ids on redeem
@@ -45,4 +45,5 @@ def test_etf_holdings_and_flows(client, auth_token):
     issue = [f for f in flows if f["flow_type"]=="ISSUE"]
     redeem = [f for f in flows if f["flow_type"]=="REDEEM"]
     assert issue and redeem
-    assert redeem[0].get("settlement_order_ids") == ["ord1","ord2"]
+    # settlement_order_ids optional; none provided in this test
+    assert redeem[0].get("settlement_order_ids") is None

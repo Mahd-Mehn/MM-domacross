@@ -42,8 +42,29 @@ class Settings(BaseSettings):
     doma_subgraph_url: Optional[str] = Field(default=None, env="DOMA_SUBGRAPH_URL")
 
     valuation_model_version: str = Field(default="v1.0", env="VALUATION_MODEL_VERSION")
+    # Valuation engine weights (v1)
+    valuation_weight_trade: float = Field(default=0.45, env="VALUATION_WEIGHT_TRADE")
+    valuation_weight_floor: float = Field(default=0.25, env="VALUATION_WEIGHT_FLOOR")
+    valuation_weight_orderbook: float = Field(default=0.20, env="VALUATION_WEIGHT_ORDERBOOK")
+    valuation_weight_time_decay: float = Field(default=0.10, env="VALUATION_WEIGHT_TIME_DECAY")
+    valuation_trade_lookback_minutes: int = Field(default=720, env="VALUATION_TRADE_LOOKBACK_MINUTES")
+    valuation_decay_lambda: float = Field(default=0.00005, env="VALUATION_DECAY_LAMBDA")  # exp(-lambda * age_seconds)
+    valuation_min_samples_trade: int = Field(default=2, env="VALUATION_MIN_SAMPLES_TRADE")
+    valuation_freshness_lambda: float = Field(default=0.00005, env="VALUATION_FRESHNESS_LAMBDA")
+    valuation_dispute_vote_threshold: int = Field(default=3, env="VALUATION_DISPUTE_VOTE_THRESHOLD")
     orderbook_snapshot_interval_seconds: int = Field(default=60, env="ORDERBOOK_SNAPSHOT_INTERVAL_SECONDS")
     listing_ttl_days: int = Field(default=30, env="LISTING_TTL_DAYS")
+    # Metrics config
+    metrics_returns_window_minutes: int = Field(default=1440, env="METRICS_RETURNS_WINDOW_MINUTES")
+    metrics_cache_ttl_seconds: int = Field(default=30, env="METRICS_CACHE_TTL_SECONDS")
+    risk_free_rate_annual_pct: float = Field(default=0.0, env="RISK_FREE_RATE_ANNUAL_PCT")
+    domain_valuation_interval_seconds: int = Field(default=120, env="DOMAIN_VALUATION_INTERVAL_SECONDS")
+    # Reward formula weights (tunable)
+    reward_sharpe_weight: float = Field(default=0.5, env="REWARD_SHARPE_WEIGHT")
+    reward_turnover_weight: float = Field(default=0.1, env="REWARD_TURNOVER_WEIGHT")
+    reward_concentration_weight: float = Field(default=0.1, env="REWARD_CONCENTRATION_WEIGHT")  # applied to (1 - concentration)
+    reward_min_multiplier: float = Field(default=0.5, env="REWARD_MIN_MULTIPLIER")
+    reward_max_multiplier: float = Field(default=3.0, env="REWARD_MAX_MULTIPLIER")
 
     # Admins
     # Read raw env into a string to avoid pydantic pre-JSON-decoding for list types.

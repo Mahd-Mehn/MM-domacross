@@ -35,6 +35,7 @@ NOTES
 .DS_Store
 artifacts/
 typechain-types/
+MIGRATIONS.md
 jwtRS256.pem
 jwtRS256.pub.pem
 cache/
