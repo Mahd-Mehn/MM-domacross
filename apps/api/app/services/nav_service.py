@@ -39,6 +39,11 @@ class NavService:
         if not etf.management_fee_bps:
             return
         last = etf.management_fee_last_accrued_at or etf.nav_updated_at or now
+        # Normalize timezone awareness to prevent naive vs aware subtraction errors
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
         elapsed_seconds = max(0, int((now - last).total_seconds()))
         if elapsed_seconds == 0:
             return

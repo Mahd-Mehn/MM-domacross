@@ -36,11 +36,11 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 
 ## 3. ETF Economics & Yield Narrative
 
-- [ ] Management Fee Accrual (periodic) stored & visible
-- [ ] Performance Fee Accrual (triggered on NAV high-water marks)
-- [ ] Fee Distribution / Revenue Share Ledger (participants or stakers)
-- [ ] APY Estimation Endpoint & Dashboard
-- [ ] Redemption / Issuance Fee Handling & Accounting
+- [X] Management Fee Accrual (periodic) stored & visible (service accrual + fee events + UI exposure)
+- [X] Performance Fee Accrual (triggered on NAV high-water marks) (crystallization logic + test + events)
+- [X] Fee Distribution / Revenue Share Ledger (participants or stakers) (endpoint + UI + test)
+- [X] APY Estimation Endpoint & Dashboard (nav history + estimate_apy + UI widget)
+- [X] Redemption / Issuance Fee Handling & Accounting (ISSUE/REDEMPTION fee events, accrual, UI form)
 
 ## 4. Settlement & Provenance
 

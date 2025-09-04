@@ -12,7 +12,12 @@ export default function ETFsPage(){
   const [showCreate, setShowCreate] = useState(false);
   const etfsQ = useQuery({ queryKey:['etfs'], queryFn: () => apiJson<ETF[]>('/api/v1/etfs', { headers: authHeader() })});
   const createMut = useMutation({
-    mutationFn: async (body:any) => apiJson('/api/v1/etfs', { method:'POST', headers:{...authHeader(), 'Content-Type':'application/json'}, body: JSON.stringify(body)}),
+    mutationFn: async (body:any) => {
+      const query = body.__query || '';
+      const payload = { ...body };
+      delete payload.__query; // remove internal key
+      return apiJson(`/api/v1/etfs${query}`, { method:'POST', headers:{...authHeader(), 'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    },
     onSuccess: ()=>{ qc.invalidateQueries({ queryKey:['etfs']}); setShowCreate(false);} 
   });
 
@@ -48,13 +53,21 @@ export default function ETFsPage(){
               <h2 className="text-lg font-semibold tracking-tight">Create Domain ETF</h2>
               <button onClick={()=>setShowCreate(false)} className="text-slate-400 hover:text-slate-200 text-sm">Close</button>
             </div>
-            <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); const positionsRaw = (f.get('positions') as string || '').split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{ const [d,w]=line.split(','); return [d.trim(), Number(w.trim())];}); createMut.mutate({ name: f.get('name'), symbol: f.get('symbol'), description: f.get('description'), competition_id: f.get('competition_id') || null, positions: positionsRaw });}} className="space-y-4 text-sm">
+            <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); const positionsRaw = (f.get('positions') as string || '').split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{ const [d,w]=line.split(','); return [d.trim(), Number(w.trim())];}); const params = new URLSearchParams(); const creationUnit = f.get('creation_unit_size') as string; if(creationUnit) params.append('creation_unit_size', creationUnit); const mgmt = f.get('management_fee_bps') as string; if(mgmt) params.append('management_fee_bps', mgmt); const perf = f.get('performance_fee_bps') as string; if(perf) params.append('performance_fee_bps', perf); const cfee = f.get('creation_fee_bps') as string; if(cfee) params.append('creation_fee_bps', cfee); const rfee = f.get('redemption_fee_bps') as string; if(rfee) params.append('redemption_fee_bps', rfee); const query = params.toString()?`?${params.toString()}`:''; createMut.mutate({ name: f.get('name'), symbol: f.get('symbol'), description: f.get('description'), competition_id: f.get('competition_id') || null, positions: positionsRaw, __query: query });}} className="space-y-4 text-sm">
               <div className="grid gap-3">
                 <label className="space-y-1"><span className="text-xs uppercase tracking-wide text-slate-400">Name</span><input name="name" required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" /></label>
                 <label className="space-y-1"><span className="text-xs uppercase tracking-wide text-slate-400">Symbol</span><input name="symbol" required maxLength={16} className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm font-mono" /></label>
                 <label className="space-y-1"><span className="text-xs uppercase tracking-wide text-slate-400">Origin Competition ID (optional)</span><input name="competition_id" type="number" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" /></label>
                 <label className="space-y-1"><span className="text-xs uppercase tracking-wide text-slate-400">Description</span><textarea name="description" rows={2} className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm" /></label>
                 <label className="space-y-1"><span className="text-xs uppercase tracking-wide text-slate-400">Positions (domain,weight_bps per line)</span><textarea name="positions" rows={4} required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-xs font-mono" placeholder="example.eth,4000\nalpha.eth,3000\nbeta.eth,3000" /></label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1"><span className="text-[10px] uppercase tracking-wide text-slate-500">Creation Unit Size (shares)</span><input name="creation_unit_size" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-xs" placeholder="100" /></label>
+                  <label className="space-y-1"><span className="text-[10px] uppercase tracking-wide text-slate-500">Mgmt Fee (bps/yr)</span><input name="management_fee_bps" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-xs" placeholder="200" /></label>
+                  <label className="space-y-1"><span className="text-[10px] uppercase tracking-wide text-slate-500">Performance Fee (bps)</span><input name="performance_fee_bps" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-xs" placeholder="1000" /></label>
+                  <label className="space-y-1"><span className="text-[10px] uppercase tracking-wide text-slate-500">Creation Fee (bps)</span><input name="creation_fee_bps" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-xs" placeholder="50" /></label>
+                  <label className="space-y-1"><span className="text-[10px] uppercase tracking-wide text-slate-500">Redemption Fee (bps)</span><input name="redemption_fee_bps" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-xs" placeholder="25" /></label>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">Weights must sum to ~10000 bps (100%). Fees optional. Performance fee accrues only on new high-water NAV. Management fee accrues pro-rata over time.</p>
               </div>
               {createMut.error && <div className="text-red-400 text-xs">Failed to create.</div>}
               <div className="flex justify-end gap-3 pt-2">

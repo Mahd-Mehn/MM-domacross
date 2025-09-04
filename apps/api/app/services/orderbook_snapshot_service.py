@@ -15,9 +15,10 @@ class OrderbookSnapshotService:
         self.interval_seconds = 60
         self._client: httpx.AsyncClient | None = None
         self._running = False
-    self.total_requests = 0
-    self.total_failures = 0
-    self.total_snapshots = 0
+        # counters
+        self.total_requests = 0
+        self.total_failures = 0
+        self.total_snapshots = 0
 
     def _headers(self) -> Dict[str, str]:
         h = {"Accept": "application/json"}

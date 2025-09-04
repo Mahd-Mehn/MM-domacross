@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.database import DomainETF as DomainETFModel, DomainETFPosition as DomainETFPositionModel, Domain as DomainModel, DomainETFShare as DomainETFShareModel, Participant as ParticipantModel, Competition as CompetitionModel
-from app.schemas.competition import DomainETFCreate, DomainETF, DomainETFPosition, DomainETFShare, ETFIssueRedeem, ETFNavUpdate, DomainETFShareFlow, DomainETFRedemptionIntent
+from app.models.database import DomainETF as DomainETFModel, DomainETFPosition as DomainETFPositionModel, Domain as DomainModel, DomainETFShare as DomainETFShareModel, Participant as ParticipantModel, Competition as CompetitionModel, DomainETFFeeEvent as DomainETFFeeEventModel, DomainETFRevenueShare as DomainETFRevenueShareModel
+from app.schemas.competition import DomainETFCreate, DomainETF, DomainETFPosition, DomainETFShare, ETFIssueRedeem, ETFNavUpdate, DomainETFShareFlow, DomainETFRedemptionIntent, DomainETFFeeEvent, DomainETFRevenueShare
 from app.deps.auth import get_current_user
 from app.models.database import User as UserModel
 from datetime import datetime, timezone
@@ -13,7 +13,17 @@ from app.services.nav_service import nav_service
 router = APIRouter()
 
 @router.post('/etfs', response_model=DomainETF)
-def create_etf(payload: DomainETFCreate, creation_unit_size: Decimal | None = None, lock_period_seconds: int | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+def create_etf(
+    payload: DomainETFCreate,
+    creation_unit_size: Decimal | None = None,
+    lock_period_seconds: int | None = None,
+    management_fee_bps: int | None = None,
+    performance_fee_bps: int | None = None,
+    creation_fee_bps: int | None = None,
+    redemption_fee_bps: int | None = None,
+    db: Session = Depends(get_db),
+    user: UserModel = Depends(get_current_user)
+):
     # Basic validation: weights sum ~ 10000 (allow small drift)
     total = sum(w for _, w in payload.positions)
     if total < 9990 or total > 10010:
@@ -26,6 +36,10 @@ def create_etf(payload: DomainETFCreate, creation_unit_size: Decimal | None = No
         description=payload.description,
         total_shares=0,
         creation_unit_size=creation_unit_size,
+        management_fee_bps=management_fee_bps,
+        performance_fee_bps=performance_fee_bps,
+        creation_fee_bps=creation_fee_bps,
+        redemption_fee_bps=redemption_fee_bps,
     )
     db.add(etf)
     db.flush()
@@ -156,6 +170,7 @@ def issue_shares(etf_id: int, payload: ETFIssueRedeem, cash_paid: Decimal | None
         fee = (required_cash * Decimal(etf.creation_fee_bps) / Decimal(10000)).quantize(Decimal('0.00000001'))
         if fee > 0:
             etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
+            db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='ISSUE_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares)}))
     db.commit()
     db.refresh(holding)
     return holding
@@ -190,6 +205,7 @@ def redeem_shares(etf_id: int, payload: ETFIssueRedeem, cash_received: Decimal |
         fee = (owed_cash * Decimal(etf.redemption_fee_bps) / Decimal(10000)).quantize(Decimal('0.00000001'))
         if fee > 0:
             etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
+            db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='REDEMPTION_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares)}))
     db.commit()
     db.refresh(holding)
     return holding
@@ -266,6 +282,54 @@ def execute_redemption_intent(etf_id: int, intent_id: int, tx_hash: str | None =
     db.commit()
     db.refresh(holding)
     return holding
+
+@router.get('/etfs/{etf_id}/fee-events', response_model=list[DomainETFFeeEvent])
+def list_fee_events(etf_id: int, limit: int = 100, offset: int = 0, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    q = db.query(DomainETFFeeEventModel).filter(DomainETFFeeEventModel.etf_id==etf_id).order_by(DomainETFFeeEventModel.created_at.desc())
+    return q.limit(min(limit,200)).offset(offset).all()
+
+@router.get('/etfs/{etf_id}/revenue-shares', response_model=list[DomainETFRevenueShare])
+def list_revenue_shares(etf_id: int, limit: int = 100, offset: int = 0, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    q = db.query(DomainETFRevenueShareModel).filter(DomainETFRevenueShareModel.etf_id==etf_id).order_by(DomainETFRevenueShareModel.created_at.desc())
+    return q.limit(min(limit,200)).offset(offset).all()
+
+@router.post('/etfs/{etf_id}/fees/distribute')
+def distribute_fees(etf_id: int, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Distribute accumulated fees pro-rata to current shareholders (excluding owner optional?)
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id==etf_id).first()
+    if not etf:
+        raise HTTPException(status_code=404, detail='ETF not found')
+    if etf.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail='Not owner')
+    total_fees = etf.fee_accrued or Decimal(0)
+    if total_fees <= 0:
+        return {'etf_id': etf_id, 'distributed': '0', 'recipients': 0}
+    # snapshot nav per share for metadata
+    nav_ps = None
+    if etf.nav_last and etf.total_shares and etf.total_shares>0:
+        nav_ps = (Decimal(etf.nav_last)/Decimal(etf.total_shares)).quantize(Decimal('0.00000001'))
+    from app.models.database import DomainETFShare as Share
+    holders = db.query(Share).filter(Share.etf_id==etf_id, Share.shares>0).all()
+    total_shares = sum([h.shares for h in holders]) or Decimal(0)
+    if total_shares <= 0:
+        return {'etf_id': etf_id, 'distributed': '0', 'recipients': 0}
+    # Create fee event
+    fee_event = DomainETFFeeEventModel(etf_id=etf.id, event_type='DISTRIBUTION', amount=total_fees, nav_per_share_snapshot=nav_ps, meta={'holder_count': len(holders)})
+    db.add(fee_event)
+    db.flush()
+    distributed = Decimal(0)
+    for h in holders:
+        pct = (h.shares / total_shares) if total_shares > 0 else Decimal(0)
+        amt = (total_fees * pct).quantize(Decimal('0.00000001'))
+        if amt > 0:
+            db.add(DomainETFRevenueShareModel(etf_id=etf.id, user_id=h.user_id, amount=amt, fee_event_id=fee_event.id))
+            distributed += amt
+    # reset accrued (any rounding dust left stays or zero out?) choose to subtract distributed
+    etf.fee_accrued = (etf.fee_accrued or Decimal(0)) - distributed
+    if etf.fee_accrued < 0:
+        etf.fee_accrued = Decimal(0)
+    db.commit()
+    return {'etf_id': etf_id, 'distributed': str(distributed), 'recipients': len(holders)}
 
 @router.post('/competitions/{competition_id}/seed-winner-etf', response_model=DomainETF)
 def seed_winner_etf(competition_id: int, symbol: str, name: str, auto_positions: bool = True, top_n: int = 10, creation_unit_size: Decimal | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):

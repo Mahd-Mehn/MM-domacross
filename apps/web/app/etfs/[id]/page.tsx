@@ -25,7 +25,7 @@ async function getOrderbookClient(){
   return orderbookClient;
 }
 
-interface ETF { id:number; name:string; symbol:string; description?:string; nav_last?:string; nav_updated_at?:string; competition_id?:number; total_shares?:string; }
+interface ETF { id:number; name:string; symbol:string; description?:string; nav_last?:string; nav_updated_at?:string; competition_id?:number; total_shares?:string; fee_accrued?:string; management_fee_bps?:number; performance_fee_bps?:number; creation_fee_bps?:number; redemption_fee_bps?:number; }
 interface Position { id:number; domain_name:string; weight_bps:number; }
 interface Holding { etf_id:number; shares:string; lock_until?:string|null }
 interface Flow { id:number; flow_type:'ISSUE'|'REDEEM'; shares:string; cash_value:string; nav_per_share:string; created_at:string }
@@ -37,6 +37,9 @@ export default function ETFDetailPage(){
   const etfQ = useQuery({ queryKey:['etf', id], queryFn:()=> apiJson<ETF>(`/api/v1/etfs/${id}`, { headers: authHeader() })});
   const posQ = useQuery({ queryKey:['etf-positions', id], queryFn:()=> apiJson<Position[]>(`/api/v1/etfs/${id}/positions`, { headers: authHeader() })});
   const holdingQ = useQuery({ queryKey:['etf-holding', id], queryFn:()=> apiJson<Holding>(`/api/v1/etfs/${id}/my/shares`, { headers: authHeader() })});
+  const feeEventsQ = useQuery({ queryKey:['etf-fee-events', id], queryFn:()=> apiJson<any[]>(`/api/v1/etfs/${id}/fee-events`, { headers: authHeader() }), refetchInterval: 30000 });
+  const revenueSharesQ = useQuery({ queryKey:['etf-revenue-shares', id], queryFn:()=> apiJson<any[]>(`/api/v1/etfs/${id}/revenue-shares`, { headers: authHeader() }), refetchInterval: 45000 });
+  const apyQ = useQuery({ queryKey:['etf-apy', id], queryFn:()=> apiJson<{etf_id:number; apy:string|null; lookback_days:number}>(`/api/v1/etfs/${id}/apy?lookback_days=30`, { headers: authHeader() }), refetchInterval: 60000 });
   const flowsQ = useQuery({ queryKey:['etf-flows', id], queryFn:()=> apiJson<Flow[]>(`/api/v1/etfs/${id}/flows`, { headers: authHeader() })});
   const [issueOpen, setIssueOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -53,6 +56,10 @@ export default function ETFDetailPage(){
       return apiJson(`/api/v1/etfs/${id}/issue${params}`, { method:'POST', headers: { ...authHeader() }, body: JSON.stringify({ shares: vars.shares })});
     },
     onSuccess: ()=>{ qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); setIssueOpen(false);} 
+  });
+  const distributeMut = useMutation({
+    mutationFn: async ()=> apiJson(`/api/v1/etfs/${id}/fees/distribute`, { method:'POST', headers: authHeader() }),
+    onSuccess: ()=> { qc.invalidateQueries({queryKey:['etf',''+id]}); qc.invalidateQueries({queryKey:['etf-fee-events', id]}); qc.invalidateQueries({queryKey:['etf-revenue-shares', id]}); pushToast('Fees distributed'); }
   });
 
   const redeemIntentMut = useMutation({
@@ -96,7 +103,7 @@ export default function ETFDetailPage(){
         </div>
         <Link href="/etfs" className="text-xs text-slate-400 hover:text-slate-200">← Back</Link>
       </div>
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="surface rounded-xl p-4">
           <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">NAV</div>
           <div className="font-semibold text-slate-200">{etf.nav_last ?? '--'} ETH</div>
@@ -108,6 +115,33 @@ export default function ETFDetailPage(){
         <div className="surface rounded-xl p-4">
           <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">Last NAV Update</div>
           <div className="font-semibold text-slate-200">{etf.nav_updated_at ? new Date(etf.nav_updated_at).toLocaleString() : '—'}</div>
+        </div>
+        <div className="surface rounded-xl p-4">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">APY (Est)</div>
+          <div className="font-semibold text-slate-200">{apyQ.data?.apy ? (parseFloat(apyQ.data.apy)*100).toFixed(2)+'%' : '—'}</div>
+        </div>
+      </section>
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="surface rounded-xl p-4 space-y-1">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">Accrued Fees</div>
+          <div className="font-semibold text-slate-200">{etf.fee_accrued ?? '0'} </div>
+        </div>
+        <div className="surface rounded-xl p-4 space-y-1 text-xs">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">Fee Schedule</div>
+          <div>Mgmt: {etf.management_fee_bps ?? 0} bps</div>
+          <div>Perf: {etf.performance_fee_bps ?? 0} bps</div>
+          <div>Create: {etf.creation_fee_bps ?? 0} bps</div>
+          <div>Redeem: {etf.redemption_fee_bps ?? 0} bps</div>
+        </div>
+        <div className="surface rounded-xl p-4 space-y-2">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">Distribute</div>
+          <Button size="sm" disabled={distributeMut.isPending} onClick={()=>distributeMut.mutate()}>{distributeMut.isPending? 'Distributing...' : 'Distribute Fees'}</Button>
+          {distributeMut.error && <div className="text-[10px] text-red-400">Failed.</div>}
+        </div>
+        <div className="surface rounded-xl p-4 space-y-1 text-xs">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">Revenue Shares</div>
+          <div>{revenueSharesQ.data?.length || 0} entries</div>
+          <div className="text-[10px] text-slate-500">Auto-refreshing</div>
         </div>
       </section>
   <section className="space-y-4">
@@ -175,6 +209,30 @@ export default function ETFDetailPage(){
             </table>
             {!flowsQ.isLoading && (flowsQ.data?.length||0)===0 && <div className="text-center text-slate-500 text-xs py-4">No flows yet.</div>}
           </div>
+        </div>
+      </section>
+      <section className="space-y-4">
+        <h2 className="text-2xl font-bold tracking-tight">Fee Events</h2>
+        <div className="rounded-lg border border-white/10 overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-800/60 text-slate-300 uppercase tracking-wide">
+              <tr>
+                <th className="text-left px-3 py-2">Time</th>
+                <th className="text-left px-3 py-2">Type</th>
+                <th className="text-left px-3 py-2">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {feeEventsQ.data?.map(ev => (
+                <tr key={ev.id} className="border-t border-white/5">
+                  <td className="px-3 py-2">{new Date(ev.created_at).toLocaleTimeString()}</td>
+                  <td className="px-3 py-2">{ev.event_type}</td>
+                  <td className="px-3 py-2">{ev.amount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!feeEventsQ.isLoading && (feeEventsQ.data?.length||0)===0 && <div className="text-center text-slate-500 text-xs py-4">No fee events.</div>}
         </div>
       </section>
       {issueOpen && (
