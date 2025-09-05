@@ -16,7 +16,7 @@ import base64
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import serialization
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 
 router = APIRouter()
 
@@ -269,7 +269,8 @@ def audit_export_stream(response: Response, db: Session = Depends(get_db), after
     response.headers['X-Next-Cursor'] = str(rows[-1].id) if rows else ''
     response.headers['X-Integrity-OK'] = 'true' if integrity_ok else 'false'
     response.headers['Cache-Control'] = 'no-store'
-    return body
+    # Return as PlainTextResponse to avoid FastAPI auto JSON-encoding the string
+    return PlainTextResponse(body, media_type='application/jsonl; charset=utf-8', headers=response.headers)
 
 @router.get('/settlement/audit-export/stream')
 def audit_export_true_stream(db: Session = Depends(get_db), after_id: int | None = None, batch_size: int = 2000, verify_integrity: bool = False, user: UserModel = Depends(get_current_user)):

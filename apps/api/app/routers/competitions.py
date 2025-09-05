@@ -21,7 +21,7 @@ from app.schemas.competition import (
 )
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, getcontext
-from app.deps.auth import get_current_user
+from app.deps.auth import get_current_user, get_current_user_optional
 from fastapi import Request
 from app.config import settings
 from app.broadcast import get_sync_broadcast
@@ -40,7 +40,7 @@ async def get_competitions(db: Session = Depends(get_db)):
 
 
 @router.get("/competitions/{competition_id}", response_model=CompetitionWithLeaderboard)
-async def get_competition(competition_id: int, db: Session = Depends(get_db)):
+async def get_competition(competition_id: int, db: Session = Depends(get_db), current_user: UserModel | None = Depends(get_current_user_optional)):
     competition = db.query(CompetitionModel).filter(CompetitionModel.id == competition_id).first()
     if not competition:
         raise HTTPException(status_code=404, detail="Competition not found")
@@ -70,6 +70,16 @@ async def get_competition(competition_id: int, db: Session = Depends(get_db)):
         for index, row in enumerate(leaderboard_query)
     ]
 
+    # Determine if current user has joined
+    has_joined: bool | None = None
+    if current_user:
+        pj = (
+            db.query(ParticipantModel)
+            .filter(ParticipantModel.competition_id == competition_id, ParticipantModel.user_id == current_user.id)
+            .first()
+        )
+        has_joined = pj is not None
+
     return CompetitionWithLeaderboard(
         id=competition.id,
         contract_address=competition.contract_address,
@@ -80,7 +90,8 @@ async def get_competition(competition_id: int, db: Session = Depends(get_db)):
         end_time=competition.end_time,
         entry_fee=competition.entry_fee,
         rules=competition.rules,
-        leaderboard=leaderboard
+        leaderboard=leaderboard,
+        has_joined=has_joined,
     )
 
 
@@ -105,7 +116,12 @@ async def create_competition(competition: CompetitionCreate, db: Session = Depen
     if settings.app_env not in ("local", "test"):
         if not current_user or (current_user.wallet_address or "").lower() not in set(settings.admin_wallets):
             raise HTTPException(status_code=403, detail="Admin privileges required")
-    db_competition = CompetitionModel(**competition.model_dump())
+    comp_data = competition.model_dump()
+    # Auto-generate off-chain placeholder if no contract address provided
+    if not comp_data.get('contract_address'):
+        from uuid import uuid4
+        comp_data['contract_address'] = f"offchain-{uuid4().hex[:20]}"
+    db_competition = CompetitionModel(**comp_data)
     db.add(db_competition)
     db.commit()
     db.refresh(db_competition)

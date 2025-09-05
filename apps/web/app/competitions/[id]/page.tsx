@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { apiJson, authHeader } from "../../../lib/api";
+import { getToken } from "../../../lib/token";
+import { useToasts } from "../../../components/ToastProvider";
 import TradingInterface from "../../../components/TradingInterface";
 import DomainBasket from "../../../components/DomainBasket";
 import USDCDeposit from "../../../components/USDCDeposit";
@@ -19,6 +21,7 @@ interface Competition {
   end_time: string;
   entry_fee?: string;
   leaderboard: LeaderboardEntry[];
+  has_joined?: boolean | null;
 }
 
 interface LeaderboardEntry {
@@ -34,15 +37,16 @@ export default function CompetitionDetailPage() {
   const competitionId = params.id as string;
   const queryClient = useQueryClient();
 
-  const { messages, sendMessage } = useWebSocket('ws://localhost:8000/ws');
+  // Derive websocket base from env (NEXT_PUBLIC_WS_URL or NEXT_PUBLIC_API_BASE) with fallback.
+  const wsBase = (process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws');
+  const { events } = useWebSocket(wsBase + '/ws');
 
   // Handle real-time updates
   useEffect(() => {
-    if (messages.length > 0) {
-      // Invalidate and refetch competition data
+    if (events.length > 0) {
       queryClient.invalidateQueries({ queryKey: ["competition", competitionId] });
     }
-  }, [messages, queryClient, competitionId]);
+  }, [events, queryClient, competitionId]);
 
   const { data: competition, isLoading, error } = useQuery({
     queryKey: ["competition", competitionId],
@@ -57,12 +61,27 @@ export default function CompetitionDetailPage() {
   if (!competition) return <div className="text-slate-400 text-sm">Competition not found</div>;
   const isActive = new Date() >= new Date(competition.start_time) && new Date() < new Date(competition.end_time);
 
+  const toasts = useToasts();
+
   async function join() {
-    await apiJson(`/api/v1/competitions/${competitionId}/join`, {
-      method: "POST",
-      headers: { ...authHeader() },
-    });
-    await queryClient.invalidateQueries({ queryKey: ["competition", competitionId] });
+    // Use abstraction (may be sessionStorage, localStorage, or memory based on config)
+    const token = getToken();
+    if (!token) { toasts.push('Please sign in first', 'error'); return; }
+    if (competition?.has_joined) { toasts.push('Already joined', 'info'); return; }
+    const toastId = toasts.push('Joining competition', 'progress', { progress: 20 });
+    try {
+  // Optimistic update
+  queryClient.setQueryData<Competition>(["competition", competitionId], (old)=> old ? { ...old, has_joined: true } : old);
+      await apiJson(`/api/v1/competitions/${competitionId}/join`, { method: 'POST', headers: { ...authHeader() } });
+      toasts.updateProgress(toastId, 70, 'Processing');
+      await queryClient.invalidateQueries({ queryKey: ["competition", competitionId] });
+      toasts.success(toastId, 'Joined');
+    } catch (e:any) {
+      console.error(e);
+  // Revert optimistic if failed
+  queryClient.setQueryData<Competition>(["competition", competitionId], (old)=> old ? { ...old, has_joined: false } : old);
+      if (e.message?.includes('401')) toasts.error(toastId, 'Auth failed'); else toasts.error(toastId, 'Join failed');
+    }
   }
 
   return (
@@ -142,7 +161,7 @@ export default function CompetitionDetailPage() {
               contractAddress={competition.contract_address}
               entryFee={competition.entry_fee || "0.01"}
               isActive={isActive}
-              hasJoined={false}
+              hasJoined={!!competition.has_joined}
             />
           </div>
           <div className="space-y-6">
@@ -156,7 +175,11 @@ export default function CompetitionDetailPage() {
           <div className="glass-dark rounded-xl p-6 border border-white/10">
             <h3 className="text-lg font-semibold mb-2 tracking-tight">Join This Competition</h3>
             <p className="text-slate-400 text-sm mb-4">Connect your wallet and join the competition to start trading domains!</p>
-            <button onClick={join} className="text-sm px-5 py-2 rounded-md bg-gradient-to-r from-brand-500 to-accent text-white font-medium hover:from-brand-400 hover:to-accent shadow-glow">Join Competition</button>
+            <button
+              onClick={join}
+              disabled={!isActive || !!competition.has_joined}
+              className="text-sm px-5 py-2 rounded-md bg-gradient-to-r from-brand-500 to-accent text-white font-medium hover:from-brand-400 hover:to-accent shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
+            >{competition.has_joined ? 'Joined' : 'Join Competition'}</button>
           </div>
         </section>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useToasts } from "./ToastProvider";
 import { useAccount, useBalance } from "wagmi";
 import { useMockUSDC, useCompetition, useTransactionConfirmation } from "../lib/hooks/useContracts";
 import { parseUnits, formatUnits } from "viem";
@@ -21,6 +22,7 @@ export default function USDCDeposit({
   hasJoined
 }: USDCDepositProps) {
   const { address } = useAccount();
+  const toasts = useToasts();
   const [depositAmount, setDepositAmount] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -37,14 +39,8 @@ export default function USDCDeposit({
 
   // Handle successful transactions
   useEffect(() => {
-    if (mintSuccess) {
-      alert('USDC minted successfully!');
-      setLoading(false);
-    }
-    if (joinSuccess) {
-      alert('Successfully joined competition!');
-      setLoading(false);
-    }
+  if (mintSuccess) { toasts.push('USDC minted', 'success'); setLoading(false); }
+  if (joinSuccess) { toasts.push('On-chain join tx confirmed', 'success'); setLoading(false); }
   }, [mintSuccess, joinSuccess]);
 
   const handleMintUSDC = async () => {
@@ -54,15 +50,15 @@ export default function USDCDeposit({
     try {
       await mint(address, parseUnits(depositAmount, 6).toString());
     } catch (error) {
-      console.error('Error minting USDC:', error);
-      alert('Failed to mint USDC');
+  console.error('Error minting USDC:', error);
+  toasts.push('Mint failed', 'error');
       setLoading(false);
     }
   };
 
   const handleJoinCompetition = async () => {
     if (!address) {
-      alert('Please connect your wallet first');
+  toasts.push('Connect wallet first', 'error');
       return;
     }
 
@@ -70,8 +66,8 @@ export default function USDCDeposit({
     try {
       await joinCompetition(entryFee);
     } catch (error) {
-      console.error('Error joining competition:', error);
-      alert('Failed to join competition');
+  console.error('Error joining competition:', error);
+  toasts.push('Join tx failed', 'error');
       setLoading(false);
     }
   };
@@ -81,9 +77,9 @@ export default function USDCDeposit({
 
   if (!address) {
     return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-        <h3 className="text-lg font-semibold mb-2">Connect Wallet</h3>
-        <p className="text-gray-600">
+      <div className="rounded-lg p-6 text-center border border-amber-300/60 dark:border-amber-400/30 bg-amber-100/80 dark:bg-amber-400/10 backdrop-blur transition-colors">
+        <h3 className="text-lg font-semibold mb-2 text-amber-900 dark:text-amber-200">Connect Wallet</h3>
+        <p className="text-amber-800/80 dark:text-amber-200/80 text-sm">
           Please connect your wallet to deposit USDC and join the competition.
         </p>
       </div>
@@ -92,42 +88,42 @@ export default function USDCDeposit({
 
   if (hasJoined) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
-        <h3 className="text-lg font-semibold mb-2">✅ Competition Joined</h3>
-        <p className="text-gray-600">
+      <div className="rounded-lg p-6 text-center border border-emerald-300/60 dark:border-emerald-500/40 bg-emerald-100/80 dark:bg-emerald-500/10 backdrop-blur transition-colors">
+        <h3 className="text-lg font-semibold mb-2 text-emerald-900 dark:text-emerald-300 flex items-center justify-center gap-2">✅ <span>Competition Joined</span></h3>
+        <p className="text-emerald-900/80 dark:text-emerald-200/80 text-sm">
           You have successfully joined this competition and can now start trading!
         </p>
         <div className="mt-4">
-          <p className="text-sm text-gray-500">Your USDC Balance: {usdcBalanceFormatted} USDC</p>
+          <p className="text-sm text-emerald-800 dark:text-emerald-300/80">Your USDC Balance: {usdcBalanceFormatted} USDC</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
-      <h3 className="text-lg font-semibold mb-4">Join Competition</h3>
+    <div className="rounded-lg p-6 border border-slate-300/70 dark:border-slate-700/70 bg-white/90 dark:bg-slate-800/70 backdrop-blur shadow-glow transition-colors">
+      <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-slate-100 transition-colors">Join Competition</h3>
 
       <div className="space-y-4">
         {/* USDC Balance */}
-        <div className="bg-gray-50 p-4 rounded-lg">
+        <div className="p-4 rounded-lg border border-slate-200/70 dark:border-slate-700/60 bg-slate-50/80 dark:bg-slate-900/40 transition-colors">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">Your USDC Balance:</span>
-            <span className="font-semibold">{usdcBalanceFormatted} USDC</span>
+            <span className="text-sm text-slate-600 dark:text-slate-400">Your USDC Balance:</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">{usdcBalanceFormatted} USDC</span>
           </div>
           <div className="flex justify-between items-center mt-2">
-            <span className="text-sm text-gray-600">Entry Fee:</span>
-            <span className="font-semibold">{entryFee} ETH</span>
+            <span className="text-sm text-slate-600 dark:text-slate-400">Entry Fee:</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">{entryFee} ETH</span>
           </div>
           <div className="flex justify-between items-center mt-2">
-            <span className="text-sm text-gray-600">Recommended Deposit:</span>
-            <span className="font-semibold text-blue-600">{requiredAmount.toFixed(2)} USDC</span>
+            <span className="text-sm text-slate-600 dark:text-slate-400">Recommended Deposit:</span>
+            <span className="font-semibold text-blue-600 dark:text-blue-400">{requiredAmount.toFixed(2)} USDC</span>
           </div>
         </div>
 
         {/* Mint USDC Section */}
         {parseFloat(usdcBalanceFormatted) < requiredAmount && (
-          <div className="border border-gray-200 rounded-lg p-4">
+          <div className="border border-slate-200/70 dark:border-slate-700/60 rounded-lg p-4 bg-white/70 dark:bg-slate-900/40 transition-colors">
             <h4 className="font-semibold mb-2">Get Test USDC</h4>
             <p className="text-sm text-gray-600 mb-3">
               Mint test USDC tokens for this competition
@@ -138,13 +134,13 @@ export default function USDCDeposit({
                 value={depositAmount}
                 onChange={(e) => setDepositAmount(e.target.value)}
                 placeholder="Amount to mint"
-                className="flex-1 p-2 border border-gray-300 rounded"
+                className="flex-1 p-2 border border-slate-300 dark:border-slate-600 rounded bg-white/80 dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-colors"
                 step="0.01"
               />
               <button
                 onClick={handleMintUSDC}
                 disabled={loading || mintPending || !depositAmount}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
+                className="bg-blue-600 dark:bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-500 dark:hover:bg-blue-400 disabled:opacity-50 transition-colors"
               >
                 {loading || mintPending ? 'Minting...' : 'Mint USDC'}
               </button>
@@ -153,15 +149,15 @@ export default function USDCDeposit({
         )}
 
         {/* Join Competition Section */}
-        <div className="border border-gray-200 rounded-lg p-4">
+  <div className="border border-slate-200/70 dark:border-slate-700/60 rounded-lg p-4 bg-white/70 dark:bg-slate-900/40 transition-colors">
           <h4 className="font-semibold mb-2">Join Competition</h4>
-          <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-3 transition-colors">
             Pay the entry fee and start trading domains
           </p>
 
           {parseFloat(usdcBalanceFormatted) < parseFloat(entryFee) ? (
-            <div className="bg-red-50 border border-red-200 rounded p-3">
-              <p className="text-sm text-red-600">
+            <div className="bg-red-100/70 dark:bg-red-500/10 border border-red-300 dark:border-red-500/40 rounded p-3 transition-colors">
+              <p className="text-sm text-red-700 dark:text-red-400">
                 Insufficient USDC balance. You need at least {entryFee} USDC to join.
               </p>
             </div>
@@ -169,7 +165,7 @@ export default function USDCDeposit({
             <button
               onClick={handleJoinCompetition}
               disabled={loading || joinPending || !isActive}
-              className="w-full bg-green-500 text-white py-3 px-4 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-emerald-600 dark:bg-emerald-500 text-white py-3 px-4 rounded hover:bg-emerald-500 dark:hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading || joinPending
                 ? 'Joining Competition...'
@@ -182,9 +178,9 @@ export default function USDCDeposit({
         </div>
 
         {/* Competition Rules */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+  <div className="rounded-lg p-4 border border-blue-300/60 dark:border-blue-500/40 bg-blue-100/70 dark:bg-blue-500/10 backdrop-blur transition-colors">
           <h4 className="font-semibold mb-2">Competition Rules</h4>
-          <ul className="text-sm text-gray-600 space-y-1">
+          <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-1 transition-colors">
             <li>• Pay entry fee to join the competition</li>
             <li>• Trade domains using your USDC balance</li>
             <li>• Competition runs for the specified duration</li>

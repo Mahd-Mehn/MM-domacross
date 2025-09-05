@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useWalletClient } from "wagmi";
+import { viemToEthersSigner, DomaOrderbookError } from "@doma-protocol/orderbook-sdk";
+import { orderbookClient } from "../lib/orderbookClient";
+import { usePersistBuy } from "../lib/hooks/useMarketplaceActions";
 import { useDomainBasket, useTransactionConfirmation } from "../lib/hooks/useContracts";
 
 interface Domain {
@@ -29,6 +32,12 @@ interface DomainBasketProps {
 
 export default function DomainBasket({ competitionId, isActive }: DomainBasketProps) {
   const { address } = useAccount();
+  const { data: walletClient } = useWalletClient();
+
+  // Purchase state for demo buy flow
+  const [purchasingBasketId, setPurchasingBasketId] = useState<string | undefined>(undefined);
+  const [purchaseStep, setPurchaseStep] = useState<string | undefined>(undefined);
+  const [purchaseProgress, setPurchaseProgress] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'create' | 'manage' | 'market'>('create');
   const [baskets, setBaskets] = useState<Basket[]>([]);
   const [userBaskets, setUserBaskets] = useState<Basket[]>([]);
@@ -45,6 +54,7 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
   } = useDomainBasket();
 
   const { isSuccess: txSuccess } = useTransactionConfirmation(basketHash);
+  const persistBuy = usePersistBuy();
 
   // Mock data for demonstration
   useEffect(() => {
@@ -151,13 +161,63 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
       alert('Please connect your wallet first');
       return;
     }
-
+    // Demo purchase flow using Doma Orderbook SDK
     setLoading(true);
     try {
-      await buyBasket(basketId);
-    } catch (error) {
-      console.error('Error buying basket:', error);
-      alert('Failed to purchase basket');
+      // Ensure wallet client is available
+      if (!walletClient) {
+        alert('Wallet client not available. Please reconnect your wallet.');
+        setLoading(false);
+        return;
+      }
+
+      // Use singleton SDK client configured in lib/orderbookClient
+      if (!orderbookClient) {
+        alert('Orderbook client not configured. Set NEXT_PUBLIC_DOMA_API_URL.');
+        setLoading(false);
+        return;
+      }
+
+      // Convert Viem wallet client to an Ethers signer the SDK expects
+      const signer = viemToEthersSigner(walletClient, 'eip155:1');
+
+      // For the demo we treat `basketId` as an orderId placeholder.
+      // In a production flow the orderId should come from the marketplace listing metadata.
+      const orderId = basketId;
+
+      setPurchasingBasketId(basketId);
+      setPurchaseStep('start');
+
+  const result = await (orderbookClient as any).buyListing({
+        params: {
+          orderId,
+        },
+        signer,
+        chainId: 'eip155:1',
+        onProgress: ((step: string, progress: number) => {
+          setPurchaseStep(step);
+          setPurchaseProgress(progress);
+        }) as any,
+      });
+
+      console.log('Buy result:', result);
+  // Persist buy to backend using existing flow
+  await persistBuy.mutateAsync({ orderId, domain: undefined, price: undefined });
+  alert('Purchase completed.');
+      setPurchasingBasketId(undefined);
+      setPurchaseProgress(0);
+      setPurchaseStep(undefined);
+      setLoading(false);
+    } catch (err: any) {
+      console.error('Error buying basket:', err);
+      if (err instanceof DomaOrderbookError) {
+        alert(`Purchase failed: ${err.message} (${err.code})`);
+      } else {
+        alert('Failed to purchase basket');
+      }
+      setPurchasingBasketId(undefined);
+      setPurchaseProgress(0);
+      setPurchaseStep(undefined);
       setLoading(false);
     }
   };
@@ -168,26 +228,24 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
 
   if (!isActive) {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-        <h3 className="text-xl font-semibold mb-2">Domain Baskets Not Available</h3>
-        <p className="text-gray-600">
-          Domain basket creation and trading is only available during active competition periods.
-        </p>
+      <div className="rounded-lg p-8 text-center border border-slate-300/60 dark:border-slate-700/60 bg-white/90 dark:bg-slate-900/40 backdrop-blur transition-colors">
+        <h3 className="text-xl font-semibold mb-2 text-slate-800 dark:text-slate-100">Domain Baskets Not Available</h3>
+        <p className="text-slate-600 dark:text-slate-400">Domain basket creation and trading is only available during active competition periods.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+    <div className="rounded-lg border border-slate-300/60 dark:border-slate-700/70 bg-white/90 dark:bg-slate-800/60 shadow-glow transition-colors">
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-slate-200/60 dark:border-slate-700/60">
         <nav className="flex">
           <button
             onClick={() => setActiveTab('create')}
             className={`px-6 py-3 text-sm font-medium border-b-2 ${
               activeTab === 'create'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-300'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
             }`}
           >
             Create Basket
@@ -196,8 +254,8 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
             onClick={() => setActiveTab('manage')}
             className={`px-6 py-3 text-sm font-medium border-b-2 ${
               activeTab === 'manage'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-300'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
             }`}
           >
             My Baskets
@@ -206,8 +264,8 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
             onClick={() => setActiveTab('market')}
             className={`px-6 py-3 text-sm font-medium border-b-2 ${
               activeTab === 'market'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-300'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
             }`}
           >
             Basket Market
@@ -219,25 +277,25 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
       <div className="p-6">
         {activeTab === 'create' && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Create Domain Basket</h3>
+            <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-slate-100">Create Domain Basket</h3>
 
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Basket Name</label>
+              <label className="block text-sm font-medium mb-2 text-slate-700 dark:text-slate-300">Basket Name</label>
               <input
                 type="text"
                 value={basketName}
                 onChange={(e) => setBasketName(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded"
+                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white/80 dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-colors"
                 placeholder="e.g., Tech Startup Bundle"
               />
             </div>
 
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Description</label>
+              <label className="block text-sm font-medium mb-2 text-slate-700 dark:text-slate-300">Description</label>
               <textarea
                 value={basketDescription}
                 onChange={(e) => setBasketDescription(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded"
+                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white/80 dark:bg-slate-800/60 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-colors"
                 rows={3}
                 placeholder="Describe your basket..."
               />
@@ -251,21 +309,21 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
                     key={domain.id}
                     className={`p-4 border rounded-lg cursor-pointer ${
                       selectedDomains.find(d => d.id === domain.id)
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white/80 dark:bg-slate-800/50'
+                    } transition-colors`}
                     onClick={() => toggleDomainSelection(domain)}
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <h5 className="font-semibold">{domain.name}</h5>
-                        <p className="text-sm text-gray-600">${domain.price}</p>
+                        <h5 className="font-semibold text-slate-800 dark:text-slate-100">{domain.name}</h5>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">${domain.price}</p>
                       </div>
                       <input
                         type="checkbox"
                         checked={selectedDomains.some(d => d.id === domain.id)}
                         onChange={() => toggleDomainSelection(domain)}
-                        className="w-4 h-4"
+                        className="w-4 h-4 text-blue-600 dark:text-blue-400"
                       />
                     </div>
                   </div>
@@ -274,9 +332,9 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
             </div>
 
             {selectedDomains.length > 0 && (
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-semibold mb-2">Selected Domains ({selectedDomains.length})</h4>
-                <div className="space-y-2">
+              <div className="mb-6 p-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/40 transition-colors">
+                <h4 className="font-semibold mb-2 text-slate-800 dark:text-slate-100">Selected Domains ({selectedDomains.length})</h4>
+                <div className="space-y-2 text-slate-700 dark:text-slate-300">
                   {selectedDomains.map((domain) => (
                     <div key={domain.id} className="flex justify-between">
                       <span>{domain.name}</span>
@@ -284,8 +342,8 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
                     </div>
                   ))}
                 </div>
-                <div className="mt-2 pt-2 border-t border-gray-200">
-                  <div className="flex justify-between font-semibold">
+                <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                  <div className="flex justify-between font-semibold text-slate-800 dark:text-slate-100">
                     <span>Total Value:</span>
                     <span>${calculateTotalValue(selectedDomains)}</span>
                   </div>
@@ -296,7 +354,7 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
             <button
               onClick={handleCreateBasket}
               disabled={loading || basketPending || !basketName.trim() || selectedDomains.length === 0}
-              className="w-full bg-green-500 text-white py-3 px-4 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-emerald-600 dark:bg-emerald-500 text-white py-3 px-4 rounded hover:bg-emerald-500 dark:hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading || basketPending ? 'Creating Basket...' : 'Create Basket'}
             </button>
@@ -368,11 +426,16 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
                   </div>
                   <button
                     onClick={() => handleBuyBasket(basket.id)}
-                    disabled={loading || basketPending}
+                    disabled={loading || basketPending || purchasingBasketId === basket.id}
                     className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50"
                   >
-                    {loading || basketPending ? 'Buying...' : 'Buy Basket'}
+                    {purchasingBasketId === basket.id ? `Buying... (${purchaseProgress}%)` : (loading || basketPending ? 'Buying...' : 'Buy Basket')}
                   </button>
+                  {purchasingBasketId === basket.id && (
+                    <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      Step: {purchaseStep || 'starting'} — {purchaseProgress}%
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

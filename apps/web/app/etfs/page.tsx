@@ -1,6 +1,7 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { apiJson, authHeader } from '../../lib/api';
 import Link from 'next/link';
 import { Button } from '../../components/ui/Button';
@@ -66,11 +67,13 @@ export default function ETFsPage(){
         {!etfsQ.isLoading && (etfsQ.data?.length||0)===0 && <div className="col-span-full text-center text-slate-500 text-sm py-16">No ETFs yet.</div>}
       </div>
       {showCreate && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur flex items-start justify-center pt-24 z-50">
-          <div className="bg-slate-900/90 border border-white/10 rounded-xl p-6 w-full max-w-lg space-y-5">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur flex items-start justify-center pt-24 z-50 overflow-y-auto">
+          <div className="bg-slate-900/90 border border-white/10 rounded-xl p-6 w-full max-w-lg space-y-5 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between sticky top-0 pb-2 bg-slate-900/90 z-10">
               <h2 className="text-lg font-semibold tracking-tight">Create Domain ETF</h2>
-              <button onClick={()=>setShowCreate(false)} className="text-slate-400 hover:text-slate-200 text-sm">Close</button>
+              <button onClick={()=>setShowCreate(false)} aria-label="Close" className="p-1 rounded-md hover:bg-slate-800/70 text-slate-400 hover:text-slate-200 transition-colors">
+                <X size={16} />
+              </button>
             </div>
             <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); const positionsRaw = (f.get('positions') as string || '').split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{ const [d,w]=line.split(','); return [d.trim(), Number(w.trim())] as [string, number];}); if(!positionsRaw.length){ return;} const totalW = positionsRaw.reduce((a,b)=> a + (b[1]||0),0 as number); if(totalW < 9990 || totalW>10010){ alert('Weights must sum to ~10000 bps'); return;} const params = new URLSearchParams(); const creationUnit = f.get('creation_unit_size') as string; if(creationUnit) params.append('creation_unit_size', creationUnit); ['management_fee_bps','performance_fee_bps','creation_fee_bps','redemption_fee_bps'].forEach(k=>{ const v = f.get(k) as string; if(v) params.append(k, v); }); const query = params.toString()?`?${params.toString()}`:''; createMut.mutate({ name: f.get('name'), symbol: f.get('symbol'), description: f.get('description'), competition_id: f.get('competition_id') || null, positions: positionsRaw, __query: query });}} className="space-y-4 text-sm">
               <div className="grid gap-3">

@@ -25,7 +25,7 @@ class Competition(Base):
     __tablename__ = "competitions"
 
     id = Column(Integer, primary_key=True, index=True)
-    contract_address = Column(String(42), unique=True, nullable=False, index=True)
+    contract_address = Column(String(42), unique=True, nullable=True, index=True)  # may be null until on-chain deployment
     chain_id = Column(Integer, nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -57,13 +57,35 @@ class Trade(Base):
     tx_hash = Column(String(66), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
+# Persistent cache of on-chain marketplace orders for attribution across restarts
+class MarketplaceOrderCache(Base):
+    __tablename__ = 'marketplace_order_cache'
+    order_id = Column(Integer, primary_key=True, index=True)
+    domain_contract = Column(String(42), nullable=True, index=True)
+    token_id = Column(String(255), nullable=True, index=True)
+    price_raw = Column(String(80), nullable=True)  # store raw wei as string to avoid precision issues
+    seller_wallet = Column(String(42), nullable=True, index=True)
+    created_block_time = Column(DateTime(timezone=True), nullable=True, index=True)
+    fulfilled_tx_hash = Column(String(80), nullable=True, index=True)
+    fulfilled_block_time = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
 class ProcessedEvent(Base):
     __tablename__ = "processed_events"
     id = Column(Integer, primary_key=True, index=True)
     unique_id = Column(String(255), nullable=False)
-    event_type = Column(String(64), nullable=False)
+    event_type = Column(String(64), nullable=False, index=True)
+    payload = Column(JSON, nullable=True)  # stored eventData for correlation/backfill
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint('unique_id', name='uq_processed_events_unique'),)
+
+class PollIngestState(Base):
+    __tablename__ = 'poll_ingest_state'
+    id = Column(Integer, primary_key=True, index=True)
+    last_ack_event_id = Column(Integer, nullable=True, index=True)
+    last_ingested_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_integrity_hash = Column(String(128), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Domain(Base):

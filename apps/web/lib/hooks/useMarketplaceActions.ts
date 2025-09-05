@@ -5,6 +5,7 @@ import { orderbookClient } from "../orderbookClient";
 import { authHeader, apiJson } from "../api";
 import { useWalletClient, useAccount } from "wagmi";
 import { viemToEthersSigner, OrderbookType } from "@doma-protocol/orderbook-sdk";
+import { useToasts } from "../../components/ToastProvider";
 
 interface BuyParams { orderId?: string; domain?: string; price?: string; }
 interface OfferParams { domain: string; contract: string; tokenId: string; price: string; currencyAddress?: string; expirationSeconds?: number; }
@@ -23,13 +24,15 @@ export function useCreateListing() {
   const qc = useQueryClient();
   const { data: walletClient } = useWalletClient();
   const { chainId, address } = useAccount();
+  const toasts = useToasts();
   return useMutation({
     mutationFn: async (p: ListingParams) => {
       if (!orderbookClient || !walletClient || !address) {
         return sdkUnavailableFallback('/api/v1/market/listing', p);
       }
       const signer = viemToEthersSigner(walletClient, caip2FromChainId(chainId));
-      const result = await orderbookClient.createListing({
+      const toastId = toasts.push('Creating listing', 'progress', { progress: 5 });
+  const result = await orderbookClient.createListing({
         params: {
           source: 'domacross-web',
           items: [{ contract: p.contract, tokenId: p.tokenId, price: p.price }],
@@ -37,11 +40,35 @@ export function useCreateListing() {
         },
         signer,
         chainId: caip2FromChainId(chainId),
-        onProgress: () => {}
+        onProgress: (...args: any[]) => {
+          const step = args[0];
+          const progress = typeof args[1] === 'number' ? args[1] : 0;
+          toasts.updateProgress(toastId, progress, `Listing: ${step}`);
+        },
       });
       // Persist off-chain snapshot
-      await sdkUnavailableFallback('/api/v1/market/listing', { domain: p.domain, contract: p.contract, token_id: p.tokenId, price: p.price });
+  const extId = (result as any)?.orderId || (result as any)?.id;
+  await sdkUnavailableFallback('/api/v1/market/listing', { domain: p.domain, contract: p.contract, token_id: p.tokenId, price: p.price, external_order_id: extId });
+      toasts.success(toastId, 'Listing created');
       return result;
+    },
+    onMutate: async (vars) => {
+      const key = ['domain', vars.domain.toLowerCase()];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<any>(key);
+      if (prev?.domain) {
+        qc.setQueryData(key, {
+          ...prev,
+          listings: [
+            { id: Date.now(), price: vars.price, seller: 'you', optimistic: true },
+            ...(prev.listings || [])
+          ]
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['domain', vars.domain.toLowerCase()], ctx.prev);
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['domain', vars.domain.toLowerCase()] });
@@ -54,6 +81,7 @@ export function useBuyDomain() {
   const qc = useQueryClient();
   const { data: walletClient } = useWalletClient();
   const { chainId, address } = useAccount();
+  const toasts = useToasts();
   return useMutation({
     mutationFn: async (p: BuyParams) => {
       if (!orderbookClient || !walletClient || !address) {
@@ -61,13 +89,19 @@ export function useBuyDomain() {
       }
       const signer = viemToEthersSigner(walletClient, caip2FromChainId(chainId));
       if (!p.orderId) throw new Error('orderId required');
+      const toastId = toasts.push('Buying listing', 'progress', { progress: 5 });
       const result = await orderbookClient.buyListing({
         params: { orderId: p.orderId as string },
         signer,
         chainId: caip2FromChainId(chainId),
-        onProgress: () => {}
+        onProgress: (...args: any[]) => {
+          const step = args[0];
+          const progress = typeof args[1] === 'number' ? args[1] : 0;
+          toasts.updateProgress(toastId, progress, `Buy: ${step}`);
+        }
       });
       await sdkUnavailableFallback('/api/v1/market/buy', { order_id: p.orderId, domain: p.domain, price: p.price });
+      toasts.success(toastId, 'Purchase complete');
       return result;
     },
     onSuccess: (_d, vars) => {
@@ -77,10 +111,32 @@ export function useBuyDomain() {
   });
 }
 
+// Persist-only hook to store completed buy operations without executing on-chain
+export function usePersistBuy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (p: { orderId: string; domain?: string; price?: string }) => {
+      return apiJson('/api/v1/market/buy', {
+        method: 'POST',
+        headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: p.orderId, domain: p.domain, price: p.price })
+      });
+    },
+    onSuccess: (_d, vars) => {
+      if (vars.domain) {
+        const lower = vars.domain.toLowerCase();
+        qc.invalidateQueries({ queryKey: ['domain', lower] });
+      }
+      qc.invalidateQueries({ queryKey: ['valuation-batch'] });
+    }
+  });
+}
+
 export function useMakeOffer() {
   const qc = useQueryClient();
   const { data: walletClient } = useWalletClient();
   const { chainId, address } = useAccount();
+  const toasts = useToasts();
   return useMutation({
     mutationFn: async (p: OfferParams) => {
       if (!orderbookClient || !walletClient || !address) {
@@ -89,7 +145,8 @@ export function useMakeOffer() {
       const signer = viemToEthersSigner(walletClient, caip2FromChainId(chainId));
       const item: any = { contract: p.contract, tokenId: p.tokenId, price: p.price };
       if (p.currencyAddress) item.currencyContractAddress = p.currencyAddress;
-      const result = await orderbookClient.createOffer({
+      const toastId = toasts.push('Creating offer', 'progress', { progress: 5 });
+  const result = await orderbookClient.createOffer({
         params: {
           source: 'domacross-web',
           items: [item],
@@ -97,10 +154,34 @@ export function useMakeOffer() {
         },
         signer,
         chainId: caip2FromChainId(chainId),
-        onProgress: () => {}
+        onProgress: (...args: any[]) => {
+          const step = args[0];
+          const progress = typeof args[1] === 'number' ? args[1] : 0;
+          toasts.updateProgress(toastId, progress, `Offer: ${step}`);
+        }
       });
-      await sdkUnavailableFallback('/api/v1/market/offer', { domain: p.domain, contract: p.contract, token_id: p.tokenId, price: p.price });
+  const extId = (result as any)?.orderId || (result as any)?.id;
+  await sdkUnavailableFallback('/api/v1/market/offer', { domain: p.domain, contract: p.contract, token_id: p.tokenId, price: p.price, external_order_id: extId });
+      toasts.success(toastId, 'Offer created');
       return result;
+    },
+    onMutate: async (vars) => {
+      const key = ['domain', vars.domain.toLowerCase()];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<any>(key);
+      if (prev?.domain) {
+        qc.setQueryData(key, {
+          ...prev,
+          offers: [
+            { id: Date.now(), price: vars.price, buyer: 'you', optimistic: true },
+            ...(prev.offers || [])
+          ]
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['domain', vars.domain.toLowerCase()], ctx.prev);
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ['domain', vars.domain.toLowerCase()] });
@@ -113,13 +194,21 @@ export function useCancelListing() {
   const qc = useQueryClient();
   const { data: walletClient } = useWalletClient();
   const { chainId } = useAccount();
+  const toasts = useToasts();
   return useMutation({
-    mutationFn: async (orderId: string) => {
+  mutationFn: async (orderId: string) => {
       if (!orderbookClient || !walletClient) {
         return sdkUnavailableFallback('/api/v1/market/cancel-listing', { orderId });
       }
       const signer = viemToEthersSigner(walletClient, caip2FromChainId(chainId));
-  return orderbookClient.cancelListing({ params: { orderId }, signer, chainId: caip2FromChainId(chainId), onProgress: () => {} });
+      const toastId = toasts.push('Cancelling listing', 'progress', { progress: 10 });
+      const r = await orderbookClient.cancelListing({ params: { orderId }, signer, chainId: caip2FromChainId(chainId), onProgress: (...args: any[]) => {
+        const step = args[0];
+        const progress = typeof args[1] === 'number' ? args[1] : 0;
+        toasts.updateProgress(toastId, progress, `Cancel: ${step}`);
+      } });
+      toasts.success(toastId, 'Listing cancelled');
+      return r;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['domain'] });
@@ -131,13 +220,21 @@ export function useCancelOffer() {
   const qc = useQueryClient();
   const { data: walletClient } = useWalletClient();
   const { chainId } = useAccount();
+  const toasts = useToasts();
   return useMutation({
-    mutationFn: async (orderId: string) => {
+  mutationFn: async (orderId: string) => {
       if (!orderbookClient || !walletClient) {
         return sdkUnavailableFallback('/api/v1/market/cancel-offer', { orderId });
       }
       const signer = viemToEthersSigner(walletClient, caip2FromChainId(chainId));
-  return orderbookClient.cancelOffer({ params: { orderId }, signer, chainId: caip2FromChainId(chainId), onProgress: () => {} });
+      const toastId = toasts.push('Cancelling offer', 'progress', { progress: 10 });
+      const r = await orderbookClient.cancelOffer({ params: { orderId }, signer, chainId: caip2FromChainId(chainId), onProgress: (...args: any[]) => {
+        const step = args[0];
+        const progress = typeof args[1] === 'number' ? args[1] : 0;
+        toasts.updateProgress(toastId, progress, `Cancel: ${step}`);
+      } });
+      toasts.success(toastId, 'Offer cancelled');
+      return r;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['domain'] });
@@ -149,17 +246,21 @@ export function useAcceptOffer() {
   const qc = useQueryClient();
   const { data: walletClient } = useWalletClient();
   const { chainId, address } = useAccount();
+  const toasts = useToasts();
   return useMutation({
-    mutationFn: async (orderId: string) => {
+  mutationFn: async (orderId: string) => {
       if (!orderbookClient || !walletClient || !address) {
         return sdkUnavailableFallback('/api/v1/market/accept-offer', { external_order_id: orderId });
       }
       const signer = viemToEthersSigner(walletClient, caip2FromChainId(chainId));
-      // Hypothetical SDK acceptOffer (assuming similar signature)
-      // If not yet implemented in SDK, the fallback handles persistence.
-      const sdkFn: any = (orderbookClient as any).acceptOffer;
-      if (typeof sdkFn === 'function') {
-        await sdkFn({ params: { orderId }, signer, chainId: caip2FromChainId(chainId), onProgress: () => {} });
+      if ((orderbookClient as any).acceptOffer) {
+        const toastId = toasts.push('Accepting offer', 'progress', { progress: 5 });
+        await (orderbookClient as any).acceptOffer({ params: { orderId }, signer, chainId: caip2FromChainId(chainId), onProgress: (...args: any[]) => {
+          const step = args[0];
+          const progress = typeof args[1] === 'number' ? args[1] : 0;
+          toasts.updateProgress(toastId, progress, `Accept: ${step}`);
+        } });
+        toasts.success(toastId, 'Offer accepted');
       }
       await sdkUnavailableFallback('/api/v1/market/accept-offer', { external_order_id: orderId });
       return { orderId };

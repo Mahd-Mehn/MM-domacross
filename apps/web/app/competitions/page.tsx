@@ -89,6 +89,7 @@ export default function CompetitionsPage(){
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2 text-xs">
                 <Badge variant={c.status==='active' ? 'success' : c.status==='upcoming' ? 'info' : 'neutral'}>{c.status}</Badge>
+                {c.contract_address?.startsWith('offchain-') && <Badge variant='outline'>Off-Chain</Badge>}
                 {c.entry_fee && <Badge variant='outline'>Entry {c.entry_fee} ETH</Badge>}
                 <Badge variant='outline'>Chain {c.chain_id}</Badge>
               </div>
@@ -160,8 +161,9 @@ export default function CompetitionsPage(){
                   </label>
                 </div>
                 <label className="space-y-1">
-                  <span className="text-xs uppercase tracking-wide text-slate-400">Contract Address</span>
-                  <input name="contract_address" required className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm font-mono" placeholder="0x..." />
+                  <span className="text-xs uppercase tracking-wide text-slate-400 flex items-center justify-between">Contract Address <span className="text-[10px] text-slate-500 normal-case font-normal">optional</span></span>
+                  <input name="contract_address" className="w-full bg-slate-800/60 rounded-md px-3 py-2 text-sm font-mono" placeholder="Leave blank for off-chain" />
+                  <p className="text-[10px] text-slate-500">If blank an offchain-* placeholder is generated; you can attach a deployed contract later.</p>
                 </label>
               </div>
               {createMutation.error && <div className="text-red-400 text-xs">Failed to create.</div>}

@@ -13,7 +13,9 @@ from app.config import settings
 from sqlalchemy.orm import Session
 from decimal import Decimal
 from app.database import get_db
-from app.models.database import Trade, Participant, Competition, User, ProcessedEvent, Domain, Listing, Offer
+from app.models.database import Trade, Participant, Competition, User, ProcessedEvent, Domain, Listing, Offer, PollIngestState
+from app.database import Base, engine
+from app.services.audit_service import record_audit_event
 from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
@@ -63,9 +65,12 @@ class DomaPollService:
         return self._client
 
     async def close(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        client = self._client
+        if client is not None:
+            try:
+                await client.aclose()
+            finally:
+                self._client = None
 
     async def poll(self, limit: Optional[int] = None, event_types: Optional[List[str]] = None) -> Dict[str, Any]:
         if not self.base_url:
@@ -100,6 +105,14 @@ class DomaPollService:
         resp = await client.post(url)
         resp.raise_for_status()
 
+    def _get_or_create_state(self, session: Session) -> PollIngestState:
+        st = session.query(PollIngestState).first()
+        if not st:
+            st = PollIngestState()
+            session.add(st)
+            session.flush()
+        return st
+
     async def process_events(self, events: List[Dict[str, Any]]) -> Dict[str, int]:
         """Persist recognized events to the database.
 
@@ -120,6 +133,8 @@ class DomaPollService:
         session: Session = SessionLocal()
         processed = 0
         try:
+            state_row = self._get_or_create_state(session)
+            prev_integrity = state_row.last_integrity_hash or ''
             for evt in events:
                 evt_type = evt.get("type") or evt.get("eventType") or "UNKNOWN"
                 event_data = evt.get("eventData") or {}
@@ -142,10 +157,25 @@ class DomaPollService:
                         # unhandled event type, still mark processed for idempotency ledger
                         processed += 1
                     if unique_id:
-                        session.add(ProcessedEvent(unique_id=str(unique_id), event_type=evt_type or "UNKNOWN"))
+                        session.add(ProcessedEvent(unique_id=str(unique_id), event_type=evt_type or "UNKNOWN", payload=event_data))
+                        # Record audit event chaining off previous integrity hash
+                        ae = record_audit_event(session, event_type=f"POLL_{evt_type}", entity_type='DOMA_EVENT', entity_id=None, user_id=None, payload={
+                            'unique_id': unique_id, 'raw_type': evt_type, 'data': event_data
+                        })
+                        prev_integrity = ae.integrity_hash
                 except Exception as e:  # log and continue; don't block batch
                     logger.error("Error processing event type=%s id=%s err=%s", evt_type, evt.get("id"), e)
             session.commit()
+            # Update state after commit
+            if events:
+                try:
+                    state_row.last_ack_event_id = events[-1].get('id') or state_row.last_ack_event_id
+                    state_row.last_ingested_at = datetime.now(timezone.utc)
+                    state_row.last_integrity_hash = prev_integrity
+                    session.add(state_row)
+                    session.commit()
+                except Exception:
+                    logger.exception("Failed updating PollIngestState")
         finally:
             session.close()
         self.total_events_processed += processed
@@ -194,6 +224,8 @@ class DomaPollService:
         domain_name = data.get("name") or data.get("domainName")
         seller = (data.get("seller") or "").lower()
         price_raw = (data.get("price") or data.get("listingPrice"))
+        # Future: Poll API may include an order / listing id field (e.g. listingId, orderId)
+        ext_id = data.get("orderId") or data.get("listingId") or data.get("id")
         try:
             price = Decimal(str(price_raw)) if price_raw is not None else Decimal(0)
         except Exception:
@@ -201,6 +233,9 @@ class DomaPollService:
         if domain_name:
             self._get_or_create_domain(session, domain_name)
             listing = Listing(domain_name=domain_name, seller_wallet=seller, price=price, tx_hash=str(raw_evt.get("txHash") or raw_evt.get("uniqueId")))
+            if ext_id:
+                # Only set if not already present to avoid uniqueness conflicts from reorg-like duplicates
+                listing.external_order_id = str(ext_id)
             session.add(listing)
         return
 
@@ -208,6 +243,7 @@ class DomaPollService:
         domain_name = data.get("name") or data.get("domainName")
         buyer = (data.get("buyer") or data.get("maker") or "").lower()
         price_raw = data.get("price") or data.get("offerPrice")
+        ext_id = data.get("orderId") or data.get("offerId") or data.get("id")
         try:
             price = Decimal(str(price_raw)) if price_raw is not None else Decimal(0)
         except Exception:
@@ -215,6 +251,8 @@ class DomaPollService:
         if domain_name:
             self._get_or_create_domain(session, domain_name)
             offer = Offer(domain_name=domain_name, buyer_wallet=buyer, price=price, tx_hash=str(raw_evt.get("txHash") or raw_evt.get("uniqueId")))
+            if ext_id:
+                offer.external_order_id = str(ext_id)
             session.add(offer)
         return
 

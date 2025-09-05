@@ -20,6 +20,7 @@ __pycache__/
 
 # Docker
 *.log
+.pytest_cache/
 .docker/
 NOTES
 

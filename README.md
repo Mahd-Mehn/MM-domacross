@@ -154,6 +154,67 @@ cd apps/api
 pytest -q
 ```
 
+#### Audit Export Resume Test
+We provide a JSONL audit export with cursor-based resumption:
+
+Endpoint: `GET /api/v1/settlement/audit-export?limit=5000&after_id=<last_id>` (admin only)
+
+Headers returned:
+* `X-Next-Cursor`: last event id in the batch (use as `after_id` to resume)
+* `X-Integrity-OK`: `true|false` if integrity chain verification passed when `verify_integrity=true`
+
+Example pagination loop (pseudo):
+```python
+cursor = None
+while True:
+   params = {'limit': 2000}
+   if cursor:
+      params['after_id'] = cursor
+   r = GET('/settlement/audit-export', params)
+   lines = r.text.strip().split('\n') if r.text else []
+   if not lines: break
+   process(lines)
+   cursor = r.headers.get('X-Next-Cursor')
+   if not cursor: break
+```
+
+Streaming variant: `GET /api/v1/settlement/audit-export/stream` (server-sent JSONL until exhaustion) supports large range pulls without manual batching.
+
+Integrity check: pass `verify_integrity=true` to recompute the rolling `integrity_hash` chain server‑side and expose `X-Integrity-OK` (non-stream) or per-line `integrity_ok` (stream).
+
+#### Dispute WebSocket Events
+Events schema (`GET /events/schema`) now includes:
+* `dispute_quorum`: { domain, dispute_id, votes, threshold }
+* `dispute_resolved`: { domain, dispute_id, final_status }
+
+Subscribe via websocket:
+```
+ws = new WebSocket('ws://localhost:8000/ws');
+ws.onopen = () => ws.send('SUB dispute_quorum,dispute_resolved');
+```
+
+Frontend component `DisputeBanner` listens and displays live dispute status for a domain.
+
+See ADR for governance rationale: `docs/adr/adr-valuation-disputes.md`.
+
+#### Ingestion / Merkle Snapshot Limitations (Phase 4)
+Current implementation:
+* Periodic Merkle incremental snapshot every 120s (`merkle_loop`).
+* On-chain event ingestion: stubbed (blockchain receipt verification exists; continuous on-chain scan not yet implemented).
+* Orderbook + reconciliation loops run only when external base URL provided.
+
+Deferred / Not Yet Implemented:
+* Full historical on-chain event backfill & gap reorg handling.
+* Persistent external queue / dead-letter for failed snapshot operations.
+* Parallel shard aggregation for very large audit logs (> millions events).
+
+Mitigations / Next Steps:
+1. Introduce block range cursor table and lightweight chain scanner task.
+2. Add periodic integrity self-audit endpoint to compare DB chain vs recomputed digest offline.
+3. Provide CLI utility to backfill snapshots for archival export.
+
+Warnings: Pydantic v1-style config deprecation warnings are filtered in tests (see `pytest.ini`). Migration to Pydantic v2 style is a backlog item.
+
 ### Frontend
 ```bash
 cd apps/web
@@ -300,6 +361,40 @@ Semantic checks (centralized in `app/services/redemption_validation.py`):
 - Optional minimum native value (`REDEMPTION_MIN_VALUE_WEI`)  
 
 Response contains: `verified`, `block`, `gas_used`, `log_count`, and `audit_event_id` when newly verified (plus `already` on idempotent re-checks).
+
+### On-Chain Marketplace Event Ingestion (Phase 4 Enhancement)
+
+When `ENABLE_RAW_CHAIN_INGEST=true` and `DOMAIN_MARKETPLACE_CONTRACT_ADDRESS` are provided, the background chain scanner decodes `DomainMarketplace` events directly from logs:
+
+Parsed events:
+* `OrderCreated(orderId, seller, domainContract, tokenId, price)` → emits `CHAIN_ORDER_CREATED` audit event.
+* `TradeExecuted(tradeId, buyer, seller, price)` → emits `CHAIN_TRADE_EXECUTED` audit event and records a placeholder `Trade` row (domain attribution TBD once full ABI indexing added).
+
+Config flags (env vars):
+* `ENABLE_CHAIN_MARKETPLACE_EVENTS=true` (defaults on; gated by raw ingest flag)
+* `DOMAIN_MARKETPLACE_CONTRACT_ADDRESS=0x...` (lowercased match)
+
+Safety & Reorg Handling: shallow reorgs up to 6 blocks trigger rewind of the cursor preserving idempotency of audit chain (later events simply recompute integrity linkage). Deep reorgs are out-of-scope for hackathon context.
+
+Future improvements:
+1. Full ABI decoding for all parameters (domain contract + tokenId) and domain name resolution.
+2. Backfill historical ranges beyond current head-window.
+3. Persistent reorg journal for deterministic reconciliation.
+
+Persistent Order Attribution Cache (Completed):
+Added `marketplace_order_cache` table + in-memory mirror. Each `OrderCreated` persists order metadata; `TradeExecuted` first attempts direct orderId match (assumes interim tradeId==orderId semantics) then heuristics (seller+price). Fulfillment updates the cache with tx hash and block time enabling restart-safe attribution and future settlement provenance queries.
+
+### Audit Export Resumable Verification Tests
+
+Test coverage ensures:
+* Cursor-based resume (`test_audit_export_resume_cursor`).
+* Merkle snapshot generation and single-event proof reconstruction (`test_merkle_snapshot_and_proof`).
+* Streaming export integrity flags.
+
+Add new tests for on-chain marketplace decoding as ABI details stabilize (placeholder events currently logged). A future `test_chain_marketplace_ingest.py` will assert:
+1. Given synthetic logs for `OrderCreated` / `TradeExecuted`, corresponding audit events persist.
+2. Integrity hash chain remains continuous across decoded and polled events.
+3. Trade placeholder row creation (until enriched attribution implemented).
 
 ### Environment Variables (Settlement / Verification)
 

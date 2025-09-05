@@ -5,6 +5,9 @@ from typing import Optional
 from app.database import get_db
 from app.models.database import Listing, Offer, Domain, Trade, Participant, Competition, TradeRiskFlag, CompetitionReward, CompetitionEpoch, ParticipantHolding
 from app.deps.auth import get_current_user
+from app.config import settings
+from app.services.reconciliation_service import reconciliation_service
+from app.services.backfill_service import backfill_service
 from app.models.database import User as UserModel
 from datetime import datetime, timezone, timedelta
 from app.broadcast import get_sync_broadcast
@@ -398,3 +401,47 @@ def cleanup_expired_listings(
 def contract_placeholder(domain_name: str) -> str:
     # Could map TLD or domain to a known contract; for now return zero address
     return '0x' + '0'*40
+
+
+def _assert_admin(user: UserModel):
+    if user.wallet_address.lower() not in (settings.admin_wallets or []):
+        raise HTTPException(status_code=403, detail='admin only')
+
+@router.post('/market/reconcile')
+async def reconcile_market(limit: int = 200, user: UserModel = Depends(get_current_user)):
+    _assert_admin(user)
+    res = await reconciliation_service.run_once(limit=limit)
+    return { 'status': 'ok', 'result': res }
+
+@router.get('/market/missing-external-ids')
+def list_missing_external_ids(limit: int = 100, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    _assert_admin(user)
+    listings = db.query(Listing.id, Listing.domain_name, Listing.price).filter(Listing.external_order_id == None).order_by(Listing.created_at.desc()).limit(limit).all()  # noqa: E711
+    offers = db.query(Offer.id, Offer.domain_name, Offer.price).filter(Offer.external_order_id == None).order_by(Offer.created_at.desc()).limit(limit).all()  # noqa: E711
+    return {
+        'listings_missing': [ { 'id': l.id, 'domain': l.domain_name, 'price': str(l.price) } for l in listings ],
+        'offers_missing': [ { 'id': o.id, 'domain': o.domain_name, 'price': str(o.price) } for o in offers ],
+    }
+
+@router.post('/market/backfill-external-id')
+def backfill_external_id(kind: str, internal_id: int, external_order_id: str, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    _assert_admin(user)
+    if kind not in ('listing','offer'):
+        raise HTTPException(status_code=400, detail='kind must be listing or offer')
+    if kind == 'listing':
+        obj = db.query(Listing).filter(Listing.id == internal_id).first()
+    else:
+        obj = db.query(Offer).filter(Offer.id == internal_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail='not found')
+    if obj.external_order_id and obj.external_order_id != external_order_id:
+        raise HTTPException(status_code=409, detail='external_order_id already set')
+    obj.external_order_id = external_order_id
+    db.commit()
+    return { 'status': 'backfilled', 'kind': kind, 'id': internal_id, 'external_order_id': external_order_id }
+
+@router.post('/market/run-auto-backfill')
+def run_auto_backfill(limit: int = 200, lookback_minutes: int = 1440, user: UserModel = Depends(get_current_user)):
+    _assert_admin(user)
+    res = backfill_service.run_once(lookback_minutes=lookback_minutes, limit=limit)
+    return { 'status': 'ok', 'result': res }

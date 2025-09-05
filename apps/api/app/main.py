@@ -9,9 +9,11 @@ from app.services.blockchain_service import blockchain_service
 from app.services.doma_poll_service import doma_poll_service
 from app.services.orderbook_snapshot_service import orderbook_snapshot_service
 from app.services.reconciliation_service import reconciliation_service
+from app.services.backfill_service import backfill_service
 from app.services.nav_service import nav_service
 from app.services.snapshot_service import snapshot_service
 from app.services.merkle_service import merkle_service
+from app.services.chain_ingest_service import chain_ingest_service
 from app.config import settings
 from app.database import SessionLocal
 from app.models.database import Domain
@@ -67,13 +69,31 @@ async def lifespan(app_: FastAPI):
     async def reconcile_loop():
         if not settings.doma_orderbook_base_url:
             return
-        interval = max(180, settings.orderbook_snapshot_interval_seconds * 3)
+        interval = max(60, settings.reconciliation_interval_seconds)
         logger.info("[reconcile] loop started interval=%ss", interval)
         while True:
             try:
                 await reconciliation_service.run_once(limit=300)
             except Exception:
                 logger.exception("[reconcile] run failed")
+            await asyncio.sleep(interval)
+
+    async def backfill_loop():
+        """Periodic lightweight external_order_id backfill for listings/offers missing an ID.
+
+        Heuristic currently: if tx_hash present & looks like hex, copy it into external_order_id.
+        This is a placeholder until richer mapping logic (e.g., orderbook API lookup) is added.
+        Runs less frequently to reduce churn.
+        """
+        interval = 900  # 15 minutes
+        logger.info("[backfill] loop started interval=%ss", interval)
+        while True:
+            try:
+                result = backfill_service.run_once(lookback_minutes=24*60, limit=200)
+                if result.get("updated"):
+                    logger.info("[backfill] updated=%s", result.get("updated"))
+            except Exception:
+                logger.exception("[backfill] loop error")
             await asyncio.sleep(interval)
 
     async def nav_loop():
@@ -131,6 +151,25 @@ async def lifespan(app_: FastAPI):
                     pass
             await asyncio.sleep(interval)
 
+    async def chain_ingest_loop():
+        interval = 30  # poll every 30s
+        from app.database import SessionLocal as _SL
+        logger.info("[chain] ingest loop started interval=%ss", interval)
+        while True:
+            db = _SL()
+            try:
+                processed = chain_ingest_service.run_once(db)
+                if processed:
+                    logger.info("[chain] processed %s blocks", processed)
+            except Exception:
+                logger.exception("[chain] ingest error")
+            finally:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+            await asyncio.sleep(interval)
+
     global bg_task
     loop_tasks: list[asyncio.Task] = []
     if settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
@@ -142,7 +181,10 @@ async def lifespan(app_: FastAPI):
     if settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(nav_loop()))
         loop_tasks.append(asyncio.create_task(fast_snapshot_loop()))
+        loop_tasks.append(asyncio.create_task(backfill_loop()))
     loop_tasks.append(asyncio.create_task(merkle_loop()))
+    if settings.enable_raw_chain_ingest:
+        loop_tasks.append(asyncio.create_task(chain_ingest_loop()))
     # Start lightweight thread-based scheduler (periodic merkle snapshot + chain ingest stub)
     try:
         from .background import scheduler
@@ -242,6 +284,9 @@ def events_schema():
             'leaderboard_delta': {'desc': 'Leaderboard change', 'fields': ['competition_id','user_id','portfolio_value','rank']},
             'risk_flag': {'desc': 'Trade risk flag', 'fields': ['trade_id','flag_type']},
             'epoch_distributed': {'desc': 'Epoch rewards distributed', 'fields': ['competition_id','epoch_index']},
+            'dispute_quorum': {'desc': 'Valuation dispute reached quorum', 'fields': ['domain','dispute_id','votes','threshold']},
+            'dispute_resolved': {'desc': 'Valuation dispute resolved or rejected', 'fields': ['domain','dispute_id','final_status']},
+            'valuation_update': {'desc': 'Domain valuation updated', 'fields': ['domain','value','previous_value','change_pct','model_version']},
             'subscribed': {'desc': 'Ack for subscription', 'fields': ['events']},
             'unsubscribed': {'desc': 'Ack for unsubscribe', 'fields': []},
         }
@@ -285,6 +330,14 @@ def metrics():
     except Exception:
         pass
     try:
+        from app.services.backfill_service import backfill_service as bfs
+        lines.append(f"backfill_runs_total {getattr(bfs,'total_runs',0)}")
+        lines.append(f"backfill_updated_total {getattr(bfs,'total_updated',0)}")
+        lines.append(f"backfill_scanned_total {getattr(bfs,'total_scanned',0)}")
+        lines.append(f"backfill_mapping_size {len(getattr(bfs,'_tx_to_order',{}))}")
+    except Exception:
+        pass
+    try:
         from app.services.valuation_service import valuation_service as vs
         if hasattr(vs, 'total_batches'):
             lines.append(f"valuation_batches_total {getattr(vs,'total_batches')}")
@@ -293,3 +346,43 @@ def metrics():
     except Exception:
         pass
     return "\n".join(lines) + "\n"
+
+@app.get("/health/ext")
+def extended_health():
+    from app.models.database import DomainValuationDispute
+    from sqlalchemy import func as _f
+    db = SessionLocal()
+    try:
+        open_disputes = db.query(_f.count()).select_from(DomainValuationDispute).filter(DomainValuationDispute.status=='OPEN').scalar() or 0
+        # Chain ingest state
+        last_block = None
+        try:
+            from app.services.chain_ingest_service import ChainIngestState
+            state = db.query(ChainIngestState).first()
+            if state:
+                last_block = state.last_block
+        except Exception:
+            pass
+        poll_cursor = None
+        poll_last_ingested = None
+        try:
+            from app.models.database import PollIngestState as _PIS
+            pis = db.query(_PIS).first()
+            if pis:
+                poll_cursor = pis.last_ack_event_id
+                poll_last_ingested = pis.last_ingested_at.isoformat() if pis.last_ingested_at else None
+        except Exception:
+            pass
+        return {
+            'service': 'domacross-api',
+            'status': 'ok',
+            'open_disputes': open_disputes,
+            'chain_last_block': last_block,
+            'poll_last_event_id': poll_cursor,
+            'poll_last_ingested_at': poll_last_ingested,
+        }
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass

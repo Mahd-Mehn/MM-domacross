@@ -5,7 +5,7 @@ from decimal import Decimal
 
 
 class CompetitionBase(BaseModel):
-    contract_address: str
+    contract_address: str | None = None
     chain_id: int
     name: str
     description: Optional[str] = None
@@ -74,6 +74,7 @@ class LeaderboardEntry(BaseModel):
 
 class CompetitionWithLeaderboard(Competition):
     leaderboard: List[LeaderboardEntry]
+    has_joined: bool | None = None
 
 
 class PortfolioUpdate(BaseModel):

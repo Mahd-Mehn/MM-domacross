@@ -145,17 +145,56 @@ Indicates a protocol or subscription issue (non-fatal unless `code` implies disc
 
 ## Planned / Reserved Event Types
 
-### valuation_update (planned)
-Will broadcast changes when valuation batch jobs adjust a domain's estimated value or when model revisions roll out.
+### dispute_quorum
+Emitted when a valuation dispute crosses its quorum threshold. Valuation clamp becomes active until resolution.
+```json
+{
+	"type": "dispute_quorum",
+	"domain": "example.tld",
+	"dispute_id": 42,
+	"votes": 3,
+	"threshold": 3,
+	"ts": "2025-09-04T12:50:00.000Z"
+}
+```
+
+### dispute_resolved
+Emitted when an admin resolves or rejects a valuation dispute (clamp lifted).
+```json
+{
+	"type": "dispute_resolved",
+	"domain": "example.tld",
+	"dispute_id": 42,
+	"final_status": "RESOLVED",  // RESOLVED | REJECTED
+	"ts": "2025-09-04T13:05:10.000Z"
+}
+```
+
+### valuation_update
+Broadcasts domain valuation refreshes. Includes previous_value/change_pct when prior valuation exists.
 ```json
 {
 	"type": "valuation_update",
 	"domain": "example.tld",
-	"value": "101.23",              // new estimated value
+	"value": "101.23",
 	"previous_value": "99.75",
 	"change_pct": 1.48,
-	"model_version": "v1.0",        // aligns with ADR versioning
-	"factors": {                     // optional transparency block
+	"model_version": "v1.0",
+	"ts": "2025-09-04T12:45:00.000Z"
+}
+```
+
+### valuation_update (future enrichment)
+May add factor contribution breakdown when surfaced directly.
+```json
+{
+	"type": "valuation_update",
+	"domain": "example.tld",
+	"value": "101.23",
+	"previous_value": "99.75",
+	"change_pct": 1.48,
+	"model_version": "v1.0",
+	"factors": {
 		"floor_contrib": 0.40,
 		"offers_contrib": 0.20,
 		"listings_contrib": 0.15,
@@ -165,7 +204,6 @@ Will broadcast changes when valuation batch jobs adjust a domain's estimated val
 	"ts": "2025-09-04T12:45:00.000Z"
 }
 ```
-Rollout Plan: Implement after transitioning from placeholder drift simulation to scheduled valuation recomputation loop. Opt-in early via subscription even before first emission.
 
 ### ping (planned)
 Server heartbeat for liveness. Client should respond with `pong` (echo or simple ack) if required.

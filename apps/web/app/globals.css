@@ -15,8 +15,24 @@ code {
     monospace;
 }
 
-/* Design tokens layer */
+/* Design tokens layer (light default) */
 :root {
+  --ds-bg: #f1f5f9;
+  --ds-bg-alt: #ffffff;
+  --ds-surface: #ffffff;
+  --ds-surface-alt: #f8fafc;
+  --ds-text: #0f172a;
+  --ds-text-dim: #475569;
+  --ds-accent: #1d75ff;
+  --ds-accent-glow: 29 117 255;
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 18px;
+  --ds-gradient-hero: radial-gradient(circle at 25% 15%, rgba(29,117,255,0.30), transparent 60%), radial-gradient(circle at 75% 55%, rgba(123,92,255,0.25), transparent 65%), linear-gradient(145deg, #f1f5f9 0%, #e2e8f0 60%, #f1f5f9 100%);
+}
+
+/* Dark theme overrides */
+.dark {
   --ds-bg: #0b1220;
   --ds-bg-alt: #121c2e;
   --ds-surface: #162132;
@@ -31,7 +47,7 @@ code {
   --ds-gradient-hero: radial-gradient(circle at 25% 15%, rgba(29,117,255,0.45), transparent 60%), radial-gradient(circle at 75% 55%, rgba(123,92,255,0.35), transparent 65%), linear-gradient(145deg, #0b1220 0%, #132034 60%, #0b1220 100%);
 }
 
-html, body { background: var(--ds-bg); color: var(--ds-text); }
+html, body { background: var(--ds-bg); color: var(--ds-text); transition: background-color .35s, color .35s; }
 
 .prose-invert a { color: var(--ds-accent); }
 

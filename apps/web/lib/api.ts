@@ -1,4 +1,8 @@
-const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+// Prefer explicit NEXT_PUBLIC_API_BASE_URL but gracefully fall back to legacy NEXT_PUBLIC_API_BASE
+const baseUrl =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://localhost:8000";
 
 export async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
@@ -16,8 +20,9 @@ export async function apiJson<T>(path: string, options: RequestInit = {}): Promi
   return res.json();
 }
 
+import { getToken } from './token';
+
 export function authHeader(): HeadersInit {
-  if (typeof window === 'undefined') return {};
-  const token = localStorage.getItem('dc_token');
+  const token = typeof window === 'undefined' ? null : getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

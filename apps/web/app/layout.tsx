@@ -14,7 +14,7 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full antialiased bg-[#0b1220] text-slate-100 selection:bg-brand-500/30">
+      <body className="min-h-full antialiased selection:bg-brand-500/30" style={{background:'var(--ds-bg)', color:'var(--ds-text)'}}>
         <Providers>
           <div className="relative min-h-screen flex flex-col">
             <header className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-slate-900/70 bg-slate-900/80 border-b border-white/10">
