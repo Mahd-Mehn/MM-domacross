@@ -34,9 +34,23 @@ router = APIRouter()
 
 
 @router.get("/competitions", response_model=List[Competition])
-async def get_competitions(db: Session = Depends(get_db)):
-    competitions = db.query(CompetitionModel).all()
-    return competitions
+async def get_competitions(db: Session = Depends(get_db), include_joined_status: bool = False, joined_only: bool = False, current_user: UserModel | None = Depends(get_current_user_optional)):
+    comps = db.query(CompetitionModel).all()
+    if include_joined_status and current_user:
+        # Build participant set for current user
+        p_ids = {p.competition_id for p in db.query(ParticipantModel).filter(ParticipantModel.user_id==current_user.id).all()}
+        enriched: list[CompetitionModel] = []
+        for c in comps:
+            if joined_only and c.id not in p_ids:
+                continue
+            # dynamically add attribute for serialization (pydantic will ignore unknown unless model updated; we can monkey patch attr)
+            setattr(c, 'has_joined', c.id in p_ids)
+            enriched.append(c)
+        comps = enriched
+    elif joined_only and current_user:
+        p_ids = {p.competition_id for p in db.query(ParticipantModel).filter(ParticipantModel.user_id==current_user.id).all()}
+        comps = [c for c in comps if c.id in p_ids]
+    return comps
 
 
 @router.get("/competitions/{competition_id}", response_model=CompetitionWithLeaderboard)

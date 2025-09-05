@@ -215,6 +215,24 @@ Mitigations / Next Steps:
 
 Warnings: Pydantic v1-style config deprecation warnings are filtered in tests (see `pytest.ini`). Migration to Pydantic v2 style is a backlog item.
 
+### Admin Gating & Settlement UI
+
+The settlement admin panel (competition payout submission & verification) is gated client-side by the environment variable:
+
+`NEXT_PUBLIC_ADMIN_WALLETS=0xAdmin1,0xAdmin2;0xAdmin3`
+
+Accepted delimiters: comma, semicolon, or whitespace. Wallet addresses are matched case-insensitively. Only listed addresses will see the Settlement (Admin Demo) section on a competition detail page. Backend endpoints performing sensitive actions also enforce server-side checks using `settings.admin_wallets` loaded from API env (`ADMIN_WALLETS`).
+
+To configure locally:
+```
+# apps/web/.env.local
+NEXT_PUBLIC_ADMIN_WALLETS=0xB47269260Ae1bD614FDc37ADA0eB04Cdb93c5E95,0x364d11a2c51F235063b7DB5b60957aE2ea91ACEE
+
+# apps/api/.env (or parent .env consumed by backend)
+ADMIN_WALLETS=0xB47269260Ae1bD614FDc37ADA0eB04Cdb93c5E95,0x364d11a2c51F235063b7DB5b60957aE2ea91ACEE
+```
+If a user is not in the list, the admin UI does not render and protected endpoints return 403.
+
 ### Frontend
 ```bash
 cd apps/web

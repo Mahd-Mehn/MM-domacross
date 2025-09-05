@@ -11,25 +11,28 @@ interface UseWsOptions {
   reconnectDelayMs?: number;
   onEvent?: (ev: WebSocketEvent) => void;
   raw?: boolean; // if true, don't JSON.parse
+  maxReconnectDelayMs?: number;
 }
 
 export function useWebSocket(url: string, opts: UseWsOptions = {}) {
-  const { events, autoReconnect = true, reconnectDelayMs = 2500, onEvent, raw = false } = opts;
+  const { events, autoReconnect = true, reconnectDelayMs = 2500, maxReconnectDelayMs = 20000, onEvent, raw = false } = opts;
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [eventBuffer, setEventBuffer] = useState<WebSocketEvent[]>([]);
   const reconnectRef = useRef<number | null>(null);
+  const attemptRef = useRef(0);
   const manualClosed = useRef(false);
   const subsRef = useRef<Set<string>>(new Set(events || []));
 
   useEffect(() => {
     manualClosed.current = false;
-    function connect() {
+  function connect() {
       const evParam = subsRef.current.size ? `?events=${Array.from(subsRef.current).join(',')}` : '';
       const ws = new WebSocket(url + evParam);
       setSocket(ws);
       ws.onopen = () => {
         setConnected(true);
+    attemptRef.current = 0; // reset backoff
         // (Re)send subscription if server expects SUB command pattern
         if (subsRef.current.size) {
           ws.send('SUB ' + Array.from(subsRef.current).join(','));
@@ -57,11 +60,12 @@ export function useWebSocket(url: string, opts: UseWsOptions = {}) {
         setConnected(false);
         setSocket(null);
         if (!manualClosed.current && autoReconnect) {
-          reconnectRef.current = window.setTimeout(connect, reconnectDelayMs);
+          const delay = Math.min(reconnectDelayMs * Math.pow(2, attemptRef.current++), maxReconnectDelayMs);
+          reconnectRef.current = window.setTimeout(connect, delay);
         }
       };
       ws.onerror = () => {
-        ws.close();
+        try { ws.close(); } catch {}
       };
     }
     connect();

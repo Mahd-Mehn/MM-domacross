@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 interface Strategy {
   id: string;
@@ -17,11 +17,13 @@ export default function StrategySharing() {
   ]);
 
   const [newStrategy, setNewStrategy] = useState({ name: '', description: '' });
+  const seqRef = useRef(2); // initial seeded strategies count
 
   const handleShare = () => {
     // Logic to share strategy
+    seqRef.current += 1;
     const strategy: Strategy = {
-      id: Date.now().toString(),
+      id: String(seqRef.current),
       name: newStrategy.name,
       description: newStrategy.description,
       author: 'Current User',

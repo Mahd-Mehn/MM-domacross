@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 from app.database import get_db
 from app.models.database import Trade, Participant, Competition, User, ProcessedEvent, Domain, Listing, Offer, PollIngestState
+from app.services.cost_basis_service import apply_trade_cost_basis
 from app.database import Base, engine
 from app.services.audit_service import record_audit_event
 from contextlib import asynccontextmanager
@@ -202,23 +203,26 @@ class DomaPollService:
             (Participant.user_id.in_([buyer_user.id, seller_user.id]))
         ).all()
 
-        # Record trades
+    # Record trades
         for user, trade_type in [(buyer_user, "BUY"), (seller_user, "SELL")]:
             participant = next((p for p in active_participants if p.user_id == user.id), None)
-            if participant:
-                trade = Trade(
-                    participant_id=participant.id,
-                    domain_token_address=token_address,
-                    domain_token_id=str(token_id),
-                    trade_type=trade_type,
-                    price=price,
-                    tx_hash=str(raw_evt.get("txHash") or raw_evt.get("uniqueId")),
-                )
-                session.add(trade)
-                # Adjust simple portfolio (BUY adds, SELL subtracts)
-                sign = Decimal(1) if trade_type == "BUY" else Decimal(-1)
-                current_value = Decimal(participant.portfolio_value or 0)
-                participant.portfolio_value = current_value + (price * sign)
+            if not participant:
+                continue
+            trade = Trade(
+                participant_id=participant.id,
+                domain_token_address=token_address,
+                domain_token_id=str(token_id),
+                trade_type=trade_type,
+                price=price,
+                tx_hash=str(raw_evt.get("txHash") or raw_evt.get("uniqueId")),
+            )
+            session.add(trade)
+            # Adjust portfolio value
+            sign = Decimal(1) if trade_type == "BUY" else Decimal(-1)
+            participant.portfolio_value = Decimal(participant.portfolio_value or 0) + (price * sign)
+            # Apply shared cost basis logic
+            domain_key = f"{token_address}:{token_id}"
+            apply_trade_cost_basis(session, participant.id, domain_key, trade_type, price)
 
     def _handle_name_token_listed(self, session: Session, raw_evt: Dict[str, Any], data: Dict[str, Any]) -> None:
         domain_name = data.get("name") or data.get("domainName")

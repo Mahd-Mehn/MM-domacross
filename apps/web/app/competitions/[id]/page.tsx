@@ -1,6 +1,6 @@
 "use client";
 import { useWebSocket } from '../../../hooks/useWebSocket';
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { apiJson, authHeader } from "../../../lib/api";
@@ -10,6 +10,10 @@ import TradingInterface from "../../../components/TradingInterface";
 import DomainBasket from "../../../components/DomainBasket";
 import USDCDeposit from "../../../components/USDCDeposit";
 import { CompetitionCharts } from "../../../components/CompetitionCharts";
+import { useSubmitCompetitionSettlement, useVerifyCompetitionSettlement } from "../../../lib/hooks/useMarketplaceActions";
+import { useAuditEvents } from "../../../lib/hooks/useAuditEvents";
+import { useAuth } from "../../../components/AuthProvider";
+// (Removed duplicate useQuery alias after refactor)
 
 interface Competition {
   id: number;
@@ -30,6 +34,12 @@ interface LeaderboardEntry {
   username?: string;
   portfolio_value: string;
   rank: number;
+}
+
+interface SettlementEvent {
+  id: number;
+  event_type: string;
+  payload?: any;
 }
 
 export default function CompetitionDetailPage() {
@@ -55,13 +65,41 @@ export default function CompetitionDetailPage() {
     }),
     refetchInterval: 30000, // Fallback polling
   });
+  // All hooks below must run before any conditional return to preserve hook order
+  const toasts = useToasts();
+  const { address } = useAuth();
+  const adminList = (process.env.NEXT_PUBLIC_ADMIN_WALLETS || '').split(/[;,\s]+/).filter(Boolean).map(a=>a.toLowerCase());
+  const isAdmin = !!address && adminList.includes(address.toLowerCase());
+  const submitSettle = useSubmitCompetitionSettlement();
+  const verifySettle = useVerifyCompetitionSettlement();
+  const [distText, setDistText] = useState("\n# one per line address,amount (raw units)\n0xabc...,1000000\n");
+  const [txHashInput, setTxHashInput] = useState("");
+  const [lastVerify, setLastVerify] = useState<any>(null);
+  const {
+    events: settlementEvents,
+    isLoading: eventsInitialLoading,
+    isFetching: eventsLoading,
+    loadMore: loadMoreEvents,
+    reset: resetEvents,
+    hasMore: hasMoreEvents,
+  } = useAuditEvents({ entityType: 'COMPETITION', entityId: competitionId, eventTypes: ['COMPETITION_SETTLEMENT_SUBMIT','COMPETITION_SETTLEMENT_VERIFIED'], limit: 25, enabled: !!competitionId });
+  const autoDistribution = useMemo(() => {
+    if (!competition?.leaderboard?.length) return '';
+    const top = competition.leaderboard.slice(0, 5);
+    const totalPV = top.reduce((acc, e) => acc + parseFloat(e.portfolio_value || '0'), 0) || 1;
+    const notional = 100_000000;
+    const lines = top.map(e => {
+      const pv = parseFloat(e.portfolio_value || '0');
+      const amt = Math.floor(notional * (pv / totalPV));
+      return `${e.wallet_address},${amt}`;
+    });
+    return lines.join('\n');
+  }, [competition]);
+  const isActive = competition ? (new Date() >= new Date(competition.start_time) && new Date() < new Date(competition.end_time)) : false;
 
   if (isLoading) return <div className="text-slate-400 text-sm">Loading competition details...</div>;
   if (error) return <div className="text-red-400 text-sm">Error loading competition</div>;
   if (!competition) return <div className="text-slate-400 text-sm">Competition not found</div>;
-  const isActive = new Date() >= new Date(competition.start_time) && new Date() < new Date(competition.end_time);
-
-  const toasts = useToasts();
 
   async function join() {
     // Use abstraction (may be sessionStorage, localStorage, or memory based on config)
@@ -152,7 +190,7 @@ export default function CompetitionDetailPage() {
         </div>
       </section>
 
-      {isActive && (
+  {isActive && (
         <section className="space-y-8">
           <div className="space-y-4">
             <h2 className="text-2xl font-bold tracking-tight">Join Competition</h2>
@@ -181,6 +219,75 @@ export default function CompetitionDetailPage() {
               className="text-sm px-5 py-2 rounded-md bg-gradient-to-r from-brand-500 to-accent text-white font-medium hover:from-brand-400 hover:to-accent shadow-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >{competition.has_joined ? 'Joined' : 'Join Competition'}</button>
           </div>
+          {isAdmin && (
+          <div className="glass-dark rounded-xl p-6 border border-purple-500/30 space-y-4">
+            <h3 className="text-lg font-semibold tracking-tight">Settlement (Admin Demo)</h3>
+            <p className="text-xs text-slate-400">Submit an executed on-chain settlement tx hash plus an optional distribution for provenance, then verify. This UI is a demo helper and not exposed to regular users.</p>
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-slate-300">Tx Hash</label>
+              <input value={txHashInput} onChange={e=>setTxHashInput(e.target.value)} placeholder="0x..." className="w-full bg-slate-800/60 border border-white/10 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-400" />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-slate-300">Distribution (optional)</label>
+              <textarea value={distText} onChange={e=>setDistText(e.target.value)} rows={4} className="w-full font-mono text-[11px] bg-slate-800/60 border border-white/10 rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-purple-400" />
+              <p className="text-[10px] text-slate-500">Format: address,amount per line. Lines beginning with # ignored.</p>
+              <div className="flex gap-2 flex-wrap text-xs">
+                <button type="button" onClick={()=> setDistText(prev => `# Auto-generated from leaderboard\n${autoDistribution || prev}`)} className="px-2 py-1 rounded bg-slate-700/70 hover:bg-slate-600 transition disabled:opacity-50" disabled={!autoDistribution}>Prefill From Leaderboard</button>
+                <button type="button" onClick={()=> setDistText("\n# one per line address,amount (raw units)\n") } className="px-2 py-1 rounded bg-slate-700/70 hover:bg-slate-600">Clear</button>
+              </div>
+            </div>
+            <div className="flex gap-3 flex-wrap">
+              <button onClick={() => {
+                const lines = distText.split(/\n+/).map(l=>l.trim()).filter(l=>l && !l.startsWith('#'));
+                const distribution = lines.map(l=>{ const [a,b] = l.split(/[,\s]+/); return { address: a, amount: (b||'0') };});
+                if (!txHashInput) { toasts.push('Tx hash required','error'); return; }
+                submitSettle.mutate({ competitionId: Number(competitionId), txHash: txHashInput, distribution }, {
+                  onSuccess: () => toasts.push('Settlement submitted','success'),
+                  onError: () => toasts.push('Submit failed','error')
+                });
+              }} disabled={submitSettle.isPending} className="px-4 py-2 rounded-md bg-purple-600 text-white text-sm disabled:opacity-50">{submitSettle.isPending ? 'Submitting...' : 'Submit Settlement'}</button>
+              <button onClick={() => {
+                verifySettle.mutate({ competitionId: Number(competitionId), txHash: txHashInput || undefined }, {
+                  onSuccess: (d:any) => { setLastVerify(d); toasts.push(d.already ? 'Already verified' : 'Verified','success'); },
+                  onError: () => toasts.push('Verify failed','error')
+                });
+              }} disabled={verifySettle.isPending} className="px-4 py-2 rounded-md bg-green-600 text-white text-sm disabled:opacity-50">{verifySettle.isPending ? 'Verifying...' : 'Verify Settlement'}</button>
+            </div>
+            {lastVerify && (
+              <div className="text-xs text-slate-300 bg-slate-800/50 rounded p-3 space-y-1">
+                <div><span className="text-slate-500">Verified:</span> {String(lastVerify.verified)}</div>
+                {lastVerify.already && <div className="text-amber-400">Already distributed</div>}
+                {lastVerify.reward_rows_marked !== undefined && <div><span className="text-slate-500">Rewards Marked:</span> {lastVerify.reward_rows_marked}</div>}
+                {lastVerify.block && <div><span className="text-slate-500">Block:</span> {lastVerify.block}</div>}
+              </div>
+            )}
+    {eventsInitialLoading && (
+              <div className="text-xs bg-slate-900/50 border border-white/5 rounded p-3 space-y-2 animate-pulse">
+                <div className="font-semibold text-slate-500">Loading settlement events...</div>
+                <ul className="space-y-1">
+                  {Array.from({length:4}).map((_,i)=>(<li key={i} className="h-3 bg-slate-700/50 rounded" />))}
+                </ul>
+              </div>
+            )}
+    {settlementEvents && settlementEvents.length > 0 && !eventsInitialLoading && (
+              <div className="text-xs bg-slate-900/50 border border-white/5 rounded p-3 space-y-2">
+                <div className="font-semibold text-slate-200">Past Settlement Events</div>
+                <ul className="space-y-1 max-h-40 overflow-auto pr-1">
+                   {settlementEvents.map((ev: SettlementEvent) => (
+                    <li key={ev.id} className="flex justify-between gap-3 border-b border-white/5 last:border-none pb-1">
+                      <span className="text-slate-400">#{ev.id} {ev.event_type.replace('COMPETITION_','')}</span>
+                      <span className="text-slate-500 truncate max-w-[140px]" title={ev.payload?.tx_hash}>{ev.payload?.tx_hash?.slice(0,10)}...</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex items-center gap-3 pt-2">
+      <button disabled={eventsLoading || !hasMoreEvents} onClick={loadMoreEvents} className="px-2 py-1 rounded bg-slate-700/70 disabled:opacity-40">{hasMoreEvents? 'Load Older':'No More'}</button>
+      <button disabled={eventsLoading} onClick={resetEvents} className="px-2 py-1 rounded bg-slate-700/70 disabled:opacity-40">Reset</button>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
         </section>
       )}
     </main>

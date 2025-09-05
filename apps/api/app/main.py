@@ -1,7 +1,8 @@
 from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement
+from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives
+from app.services.incentive_service import incentive_service
 import logging
 from typing import List
 import asyncio
@@ -17,7 +18,14 @@ from app.services.chain_ingest_service import chain_ingest_service
 from app.config import settings
 from app.database import SessionLocal
 from app.models.database import Domain
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:  # hinting only; some models may not be present in reduced env
+    try:  # pragma: no cover
+        from app.models.database import DomainValuationDispute, PollIngestState  # type: ignore
+    except Exception:  # pragma: no cover
+        pass
 from decimal import Decimal
+from app.services.abuse_guard import abuse_guard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -104,6 +112,17 @@ async def lifespan(app_: FastAPI):
                 nav_service.run_once(stale_seconds=600)
                 # After NAV recompute, take a lightweight snapshot (per-share history) less frequently (every run here)
                 snapshot_service.snapshot_once()
+                # Record nav metric for circuit breaker (approx: average of recent valuations if available)
+                try:
+                    # Heuristic: take mean of last 10 domain estimated values
+                    db_nav = SessionLocal()
+                    from sqlalchemy import func as _f
+                    avg_val = db_nav.query(_f.avg(Domain.last_estimated_value)).scalar()
+                    if avg_val:
+                        abuse_guard.record_nav(Decimal(avg_val))
+                    db_nav.close()
+                except Exception:
+                    logger.exception("[nav] nav record failed")
                 # Broadcast minimal nav update event
                 await broadcast_event({"type": "nav_update"})
             except Exception:
@@ -170,6 +189,25 @@ async def lifespan(app_: FastAPI):
                     pass
             await asyncio.sleep(interval)
 
+    async def incentive_loop():
+        interval = 90  # finalize ended incentive epochs roughly every 90s
+        from app.database import SessionLocal as _SL
+        logger.info("[incentive] loop started interval=%ss", interval)
+        while True:
+            db = _SL()
+            try:
+                finalized = incentive_service.run_once(db)
+                if finalized:
+                    logger.info("[incentive] finalized epochs=%s", finalized)
+            except Exception:
+                logger.exception("[incentive] loop error")
+            finally:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+            await asyncio.sleep(interval)
+
     global bg_task
     loop_tasks: list[asyncio.Task] = []
     if settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
@@ -185,6 +223,7 @@ async def lifespan(app_: FastAPI):
     loop_tasks.append(asyncio.create_task(merkle_loop()))
     if settings.enable_raw_chain_ingest:
         loop_tasks.append(asyncio.create_task(chain_ingest_loop()))
+    loop_tasks.append(asyncio.create_task(incentive_loop()))
     # Start lightweight thread-based scheduler (periodic merkle snapshot + chain ingest stub)
     try:
         from .background import scheduler
@@ -243,6 +282,7 @@ app.include_router(market.router, prefix="/api/v1")
 app.include_router(etf.router, prefix="/api/v1")
 app.include_router(seasons.router, prefix="/api/v1")
 app.include_router(settlement.router, prefix="/api/v1")
+app.include_router(incentives.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")
@@ -284,6 +324,8 @@ def events_schema():
             'leaderboard_delta': {'desc': 'Leaderboard change', 'fields': ['competition_id','user_id','portfolio_value','rank']},
             'risk_flag': {'desc': 'Trade risk flag', 'fields': ['trade_id','flag_type']},
             'epoch_distributed': {'desc': 'Epoch rewards distributed', 'fields': ['competition_id','epoch_index']},
+            'incentive_epoch_finalized': {'desc': 'Incentive epoch finalized', 'fields': ['schedule_id','epoch_index','adjusted','actual_emission']},
+            'incentive_schedule_created': {'desc': 'Incentive schedule created', 'fields': ['schedule_id','name']},
             'dispute_quorum': {'desc': 'Valuation dispute reached quorum', 'fields': ['domain','dispute_id','votes','threshold']},
             'dispute_resolved': {'desc': 'Valuation dispute resolved or rejected', 'fields': ['domain','dispute_id','final_status']},
             'valuation_update': {'desc': 'Domain valuation updated', 'fields': ['domain','value','previous_value','change_pct','model_version']},
@@ -349,11 +391,17 @@ def metrics():
 
 @app.get("/health/ext")
 def extended_health():
-    from app.models.database import DomainValuationDispute
+    try:
+        from app.models.database import DomainValuationDispute
+    except Exception:
+        DomainValuationDispute = None  # type: ignore
     from sqlalchemy import func as _f
     db = SessionLocal()
     try:
-        open_disputes = db.query(_f.count()).select_from(DomainValuationDispute).filter(DomainValuationDispute.status=='OPEN').scalar() or 0
+        if DomainValuationDispute:
+            open_disputes = db.query(_f.count()).select_from(DomainValuationDispute).filter(DomainValuationDispute.status=='OPEN').scalar() or 0
+        else:
+            open_disputes = 0
         # Chain ingest state
         last_block = None
         try:
@@ -366,8 +414,11 @@ def extended_health():
         poll_cursor = None
         poll_last_ingested = None
         try:
-            from app.models.database import PollIngestState as _PIS
-            pis = db.query(_PIS).first()
+            try:
+                from app.models.database import PollIngestState as _PIS
+                pis = db.query(_PIS).first()
+            except Exception:
+                pis = None
             if pis:
                 poll_cursor = pis.last_ack_event_id
                 poll_last_ingested = pis.last_ingested_at.isoformat() if pis.last_ingested_at else None

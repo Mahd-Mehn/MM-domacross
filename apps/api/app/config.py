@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     redemption_min_value_wei: Optional[int] = None
     redemption_weth_contract_address: Optional[str] = None
 
+    # Competition settlement verification
+    competition_settlement_contract_address: Optional[str] = None
+    competition_settlement_finalized_topic0: Optional[str] = None
+    competition_settlement_prizepaid_topic0: Optional[str] = None
+    competition_settlement_min_logs: int = 1
+
     valuation_model_version: str = "v1.0"
     # Valuation engine weights (v1)
     valuation_weight_trade: float = 0.45
@@ -86,6 +92,12 @@ class Settings(BaseSettings):
     reward_concentration_weight: float = 0.1
     reward_min_multiplier: float = 0.5
     reward_max_multiplier: float = 3.0
+
+    # Anti-abuse / Phase 6
+    rate_limit_trades_per_minute: int = 30
+    rate_limit_trades_burst: int = 10
+    circuit_breaker_nav_move_bps: int = 2000  # 20% move triggers breaker
+    circuit_breaker_window_minutes: int = 15
 
     # Admins
     # Read raw env into a string to avoid pydantic pre-JSON-decoding for list types.

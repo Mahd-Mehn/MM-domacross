@@ -21,6 +21,7 @@ class CompetitionCreate(CompetitionBase):
 
 class Competition(CompetitionBase):
     id: int
+    has_joined: bool | None = None
 
     class Config:
         from_attributes = True

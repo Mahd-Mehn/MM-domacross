@@ -26,13 +26,27 @@ def _key(address: str) -> str:
 
 
 async def issue_nonce(address: str) -> str:
-    nonce = secrets.token_urlsafe(16)
+    """Idempotent nonce issuance: if a valid nonce already exists for address, return it.
+
+    Prevents race where multiple parallel sign-in attempts overwrite previous nonce,
+    causing the first verification to fail ("Nonce invalid or expired").
+    """
     key = _key(address)
+    try:
+        existing = await redis_client.get(key)
+        if existing:
+            return existing  # reuse until consumed / TTL expiry
+    except Exception:
+        _purge_expired()
+        cur = _fallback_store.get(key)
+        if cur and cur[1] > time.time():
+            return cur[0]
+    # Issue new
+    nonce = secrets.token_urlsafe(16)
     try:
         await redis_client.setex(key, NONCE_TTL_SECONDS, nonce)
         return nonce
     except Exception:
-        # Fallback to memory
         _purge_expired()
         _fallback_store[key] = (nonce, time.time() + NONCE_TTL_SECONDS)
         return nonce

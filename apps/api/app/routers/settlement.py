@@ -2,13 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.database import AuditEvent, MerkleSnapshot, DomainETFShareFlow, DomainETFFeeEvent, DomainETFRedemptionIntent, DomainETF as DomainETFModel
+from app.models.database import IdempotencyKey
 from app.services.merkle_service import merkle_service
 from app.services.audit_service import record_audit_event
 from app.services.blockchain_service import blockchain_service
 from app.services.redemption_validation import validate_redemption_receipt
+from app.services.competition_settlement_validation import validate_competition_settlement_receipt
 from app.deps.auth import get_current_user
 from app.models.database import User as UserModel
-from typing import Any
+from typing import Any, List
 from hashlib import sha256
 from app.config import settings
 from app.services.redis_rate_limit import consume_token as rl_consume
@@ -17,6 +19,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import serialization
 from fastapi.responses import StreamingResponse, PlainTextResponse
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -29,7 +32,8 @@ def _consume_token(key: str, capacity: int = 120, refill_rate: float = 2.0) -> b
     now = time.time()
     tokens, last = _rate_buckets.get(key, (capacity * 1.0, now))
     # Refill
-    tokens = min(capacity, tokens + (now - last) * refill_rate)
+    # Cast capacity to float to appease strict type checkers
+    tokens = min(float(capacity), tokens + (now - last) * refill_rate)
     if tokens < 1.0:
         _rate_buckets[key] = (tokens, now)
         return False
@@ -66,22 +70,44 @@ def _build_merkle(leaves: list[bytes]) -> bytes:
     return layer[0]
 
 @router.get('/settlement/audit-events')
-def list_audit_events(limit: int = 200, offset: int = 0, event_type: str | None = None, entity_type: str | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+def list_audit_events(limit: int = 200, offset: int = 0, cursor_after_id: int | None = None, event_type: str | None = None, entity_type: str | None = None, entity_id: int | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    """List audit events with basic offset or cursor pagination.
+
+    If cursor_after_id is supplied, rows strictly greater than that id are returned (ignores offset).
+    Returns a wrapper with data array and next_cursor for subsequent calls."""
     q = db.query(AuditEvent)
     if event_type:
-        q = q.filter(AuditEvent.event_type == event_type)
+        # Allow comma/semicolon separated multi-values
+        types = [t.strip() for t in event_type.replace(';',',').split(',') if t.strip()]
+        if len(types) == 1:
+            q = q.filter(AuditEvent.event_type == types[0])
+        elif len(types) > 1:
+            q = q.filter(AuditEvent.event_type.in_(types))
     if entity_type:
         q = q.filter(AuditEvent.entity_type == entity_type)
-    rows = q.order_by(AuditEvent.id.desc()).limit(min(limit,500)).offset(offset).all()
-    return [ {
-        'id': r.id,
-        'event_type': r.event_type,
-        'entity_type': r.entity_type,
-        'entity_id': r.entity_id,
-        'user_id': r.user_id,
-        'payload': r.payload,
-        'created_at': r.created_at.isoformat()
-    } for r in rows ]
+    if entity_id is not None:
+        q = q.filter(AuditEvent.entity_id == entity_id)
+    q = q.order_by(AuditEvent.id.desc())
+    lim = max(1, min(limit, 500))
+    if cursor_after_id is not None:
+        q = q.filter(AuditEvent.id < cursor_after_id)  # descending order, fetch older
+        rows = q.limit(lim).all()
+    else:
+        rows = q.offset(offset).limit(lim).all()
+    next_cursor = rows[-1].id if rows else None
+    return {
+        'data': [ {
+            'id': r.id,
+            'event_type': r.event_type,
+            'entity_type': r.entity_type,
+            'entity_id': r.entity_id,
+            'user_id': r.user_id,
+            'payload': r.payload,
+            'created_at': r.created_at.isoformat()
+        } for r in rows ],
+        'next_cursor': next_cursor,
+        'limit': lim
+    }
 
 @router.get('/settlement/etfs/{etf_id}/redemption-intents')
 def list_redemption_intents(etf_id: int, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
@@ -101,6 +127,38 @@ def latest_merkle(db: Session = Depends(get_db)):
     if not snap:
         return { 'merkle_root': None, 'event_count': 0, 'last_event_id': None }
     return { 'merkle_root': snap.merkle_root, 'event_count': snap.event_count, 'last_event_id': snap.last_event_id, 'created_at': snap.created_at.isoformat() }
+
+class RedemptionCreateRequest(BaseModel):
+    shares: str
+
+@router.post('/settlement/etfs/{etf_id}/redemption-intents')
+def create_redemption_intent(etf_id: int, body: RedemptionCreateRequest, request: Request, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Idempotency: look for header
+    idem_key = request.headers.get('Idempotency-Key')
+    if idem_key:
+        existing_key = db.query(IdempotencyKey).filter(IdempotencyKey.key==idem_key).first()
+        if existing_key:
+            # Return latest intent of this user+etf with same created_at window (simplistic approach)
+            intent = db.query(DomainETFRedemptionIntent).filter(DomainETFRedemptionIntent.user_id==user.id, DomainETFRedemptionIntent.etf_id==etf_id).order_by(DomainETFRedemptionIntent.id.desc()).first()
+            if intent:
+                return {'id': intent.id, 'shares': str(intent.shares), 'idempotent': True}
+    # Validate ETF exists
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id==etf_id).first()
+    if not etf:
+        raise HTTPException(status_code=404, detail='ETF not found')
+    from decimal import Decimal
+    try:
+        shares_dec = Decimal(body.shares)
+    except Exception:
+        raise HTTPException(status_code=400, detail='Invalid shares')
+    intent = DomainETFRedemptionIntent(etf_id=etf_id, user_id=user.id, shares=shares_dec, nav_per_share_snapshot=etf.nav_last)
+    db.add(intent)
+    if idem_key:
+        db.add(IdempotencyKey(key=idem_key, route='/settlement/etfs/redemption-intents'))
+    db.commit()
+    db.refresh(intent)
+    record_audit_event(db, event_type='REDEMPTION_INTENT_CREATE', entity_type='REDEMPTION_INTENT', entity_id=intent.id, user_id=user.id, payload={'etf_id': etf_id, 'shares': str(intent.shares)})
+    return {'id': intent.id, 'shares': str(intent.shares), 'idempotent': False}
 
 @router.post('/settlement/merkle/recompute')
 def recompute_merkle(db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
@@ -184,7 +242,7 @@ async def verify_redemption_onchain(etf_id: int, intent_id: int, tx_hash: str | 
     intent = db.query(DomainETFRedemptionIntent).filter(DomainETFRedemptionIntent.id==intent_id, DomainETFRedemptionIntent.etf_id==etf_id).first()
     if not intent:
         raise HTTPException(status_code=404, detail='Intent not found')
-    if not blockchain_service.ensure_initialized():
+    if not blockchain_service.ensure_initialized():  # type: ignore[attr-defined]
         raise HTTPException(status_code=503, detail='Blockchain RPC unavailable')
     # If tx_hash not provided attempt to locate from most recent REDEMPTION_PROOF audit event
     if not tx_hash:
@@ -314,6 +372,101 @@ def audit_export_true_stream(db: Session = Depends(get_db), after_id: int | None
                 }, sort_keys=True) + '\n'
             last_id = rows[-1].id
     return StreamingResponse(gen(), media_type='application/jsonl')
+
+# --- Competition Settlement Flow ---
+
+class DistributionItem(BaseModel):
+    address: str
+    amount: str  # store raw string (wei or token units) for provenance
+
+class CompetitionSettlementSubmit(BaseModel):
+    tx_hash: str
+    distribution: List[DistributionItem] | None = None
+    total_amount: str | None = None  # if omitted and distribution provided we derive sum
+
+@router.post('/settlement/competitions/{competition_id}/submit')
+async def submit_competition_settlement(competition_id: int, data: CompetitionSettlementSubmit, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Derive total if not supplied
+    total = data.total_amount
+    if not total and data.distribution:
+        try:
+            # naive decimal-safe sum as int of string values
+            total_int = sum(int(d.amount) for d in data.distribution)
+            total = str(total_int)
+        except Exception:
+            total = None
+    payload = {
+        'tx_hash': data.tx_hash,
+        'total_amount': total,
+        'distribution': [di.dict() for di in (data.distribution or [])],
+        'distribution_count': len(data.distribution or [])
+    }
+    ae = record_audit_event(db, event_type='COMPETITION_SETTLEMENT_SUBMIT', entity_type='COMPETITION', entity_id=competition_id, user_id=user.id, payload=payload)
+    db.commit()
+    return { 'audit_event_id': ae.id, 'total_amount': total, 'distribution_count': payload['distribution_count'] }
+
+@router.post('/settlement/competitions/{competition_id}/verify')
+async def verify_competition_settlement(competition_id: int, tx_hash: str | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Gather any prior submit/verify audit events
+    submit_ev = db.query(AuditEvent).filter(
+        AuditEvent.event_type=='COMPETITION_SETTLEMENT_SUBMIT',
+        AuditEvent.entity_type=='COMPETITION',
+        AuditEvent.entity_id==competition_id
+    ).order_by(AuditEvent.id.desc()).first()
+    verified_prev = db.query(AuditEvent).filter(
+        AuditEvent.event_type=='COMPETITION_SETTLEMENT_VERIFIED',
+        AuditEvent.entity_type=='COMPETITION',
+        AuditEvent.entity_id==competition_id
+    ).order_by(AuditEvent.id.desc()).first()
+    if not tx_hash:
+        if submit_ev and isinstance(submit_ev.payload, dict):
+            tx_hash = submit_ev.payload.get('tx_hash')
+        if not tx_hash and verified_prev and isinstance(verified_prev.payload, dict):
+            tx_hash = verified_prev.payload.get('tx_hash')
+    if not tx_hash:
+        raise HTTPException(status_code=400, detail='tx_hash required')
+    # Idempotency: if already verified (all epochs distributed) return early
+    from app.models.database import CompetitionReward, CompetitionEpoch
+    undistributed = db.query(CompetitionEpoch).filter(CompetitionEpoch.competition_id==competition_id, CompetitionEpoch.distributed == False).count()  # noqa: E712
+    if undistributed == 0 and verified_prev:
+        block_prev = None
+        if isinstance(verified_prev.payload, dict):
+            block_prev = verified_prev.payload.get('block')
+        return { 'verified': True, 'already': True, 'block': block_prev }
+    if not blockchain_service.ensure_initialized():  # type: ignore[attr-defined]
+        raise HTTPException(status_code=503, detail='Blockchain RPC unavailable')
+    receipt = await blockchain_service.get_transaction_receipt(tx_hash)
+    if not receipt:
+        return { 'verified': False, 'reason': 'receipt_not_found' }
+    validation = validate_competition_settlement_receipt(receipt)
+    if not validation.ok:
+        return { 'verified': False, **validation }
+    # Mark any remaining undistributed epochs & rewards
+    ep_rows = db.query(CompetitionEpoch).filter(CompetitionEpoch.competition_id==competition_id, CompetitionEpoch.distributed == False).all()  # noqa: E712
+    import datetime
+    now = datetime.datetime.utcnow()
+    modified_rewards = 0
+    for ep in ep_rows:
+        rws = db.query(CompetitionReward).filter(CompetitionReward.epoch_id==ep.id, CompetitionReward.distributed_at == None).all()  # noqa: E711
+        for r in rws:
+            r.distributed_at = now
+            modified_rewards += 1
+        ep.distributed = True
+    # Compose verification payload with provenance (include original distribution if present)
+    distribution = []
+    total_amount = None
+    if submit_ev and isinstance(submit_ev.payload, dict):
+        distribution = submit_ev.payload.get('distribution') or []
+        total_amount = submit_ev.payload.get('total_amount')
+    ae = record_audit_event(db, event_type='COMPETITION_SETTLEMENT_VERIFIED', entity_type='COMPETITION', entity_id=competition_id, user_id=user.id, payload={
+        'tx_hash': tx_hash,
+        'block': validation.get('block'),
+        'total_amount': total_amount,
+        'distribution': distribution,
+        'reward_rows_marked': modified_rewards
+    })
+    db.commit()
+    return { 'verified': True, 'block': validation.get('block'), 'audit_event_id': ae.id, 'reward_rows_marked': modified_rewards }
 
 
 @router.get('/settlement/audit-events/export')

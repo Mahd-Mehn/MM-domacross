@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useRef, useEffect, useState } from 'react';
 import { orderbookClient } from "../orderbookClient";
 
 interface OrderLevel { price: string; size: string; }
@@ -16,11 +17,15 @@ async function fetchOrderbook(name: string): Promise<OrderbookData> {
 }
 
 export function useOrderbook(name: string | undefined, opts: { intervalMs?: number } = {}) {
+  const baseRef = useRef<number>(0);
+  const [mounted, setMounted] = useState(false);
+  useEffect(()=> { setMounted(true); if(!baseRef.current) baseRef.current = Date.now(); },[]);
   return useQuery({
     queryKey: ["orderbook", name?.toLowerCase()],
     queryFn: () => fetchOrderbook(name!),
     enabled: !!name,
     refetchInterval: opts.intervalMs ?? 15_000,
+  select: (d) => ({ ...d, updatedAt: mounted ? (d.updatedAt || baseRef.current) : 0 })
   });
 }
 

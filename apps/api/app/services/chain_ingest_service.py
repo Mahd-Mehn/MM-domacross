@@ -17,6 +17,7 @@ from app.database import engine, Base
 from app.services.blockchain_service import blockchain_service
 from app.services.audit_service import record_audit_event
 from app.models.database import Trade, Participant, User, Competition, MarketplaceOrderCache
+from app.services.cost_basis_service import apply_trade_cost_basis
 from app.config import settings
 from datetime import datetime, timezone
 from typing import Any
@@ -244,10 +245,14 @@ class ChainIngestService:
                         # Normalize to concrete types for type checker (avoid Optional unions)
                         safe_domain_contract: str = domain_contract if domain_contract else '0x0'
                         safe_token_id: int = token_id if token_id is not None else 0
+                        # BUY legs: increment quantity + adjust avg_cost
                         for bp in buyer_parts:
                             db.add(Trade(participant_id=bp.id, domain_token_address=safe_domain_contract, domain_token_id=str(safe_token_id), trade_type='BUY', price=norm_price, tx_hash=txh, timestamp=block_ts))
+                            apply_trade_cost_basis(db, bp.id, f"{safe_domain_contract}:{safe_token_id}", 'BUY', norm_price)
+                        # SELL legs: decrement quantity & compute realized pnl approx (realized pnl accumulation omitted for brevity)
                         for sp in seller_parts:
                             db.add(Trade(participant_id=sp.id, domain_token_address=safe_domain_contract, domain_token_id=str(safe_token_id), trade_type='SELL', price=norm_price, tx_hash=txh, timestamp=block_ts))
+                            apply_trade_cost_basis(db, sp.id, f"{safe_domain_contract}:{safe_token_id}", 'SELL', norm_price)
                 else:
                     continue
             except Exception:

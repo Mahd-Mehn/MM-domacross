@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { viemToEthersSigner, DomaOrderbookError } from "@doma-protocol/orderbook-sdk";
 import { orderbookClient } from "../lib/orderbookClient";
+import { fetchFirstActiveListing, fetchListingsByDomain } from "../lib/listings";
 import { usePersistBuy } from "../lib/hooks/useMarketplaceActions";
 import { useDomainBasket, useTransactionConfirmation } from "../lib/hooks/useContracts";
 
@@ -31,7 +32,7 @@ interface DomainBasketProps {
 }
 
 export default function DomainBasket({ competitionId, isActive }: DomainBasketProps) {
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
 
   // Purchase state for demo buy flow
@@ -45,6 +46,8 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
   const [basketName, setBasketName] = useState('');
   const [basketDescription, setBasketDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  // UI state: resolved listing for each basket id (domain -> listing info)
+  const [resolvedByBasket, setResolvedByBasket] = useState<Record<string, { domain: string; orderId?: string; price?: string } | undefined>>({});
 
   const {
     createBasket,
@@ -181,19 +184,30 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
       // Convert Viem wallet client to an Ethers signer the SDK expects
       const signer = viemToEthersSigner(walletClient, 'eip155:1');
 
-      // For the demo we treat `basketId` as an orderId placeholder.
-      // In a production flow the orderId should come from the marketplace listing metadata.
-      const orderId = basketId;
+      // Resolve real orderId from domain listings using the resolvedByBasket map if available.
+      const selectedBasket = baskets.find(b => b.id === basketId);
+      // Prefer a previously resolved mapping; else try first domain as heuristic
+      const resolved = resolvedByBasket[basketId];
+      const primaryDomain = resolved?.domain || selectedBasket?.domains[0]?.name;
+      let orderId: string | undefined = resolved?.orderId;
+      let priceForPersist: string | undefined = resolved?.price;
+      if (!orderId && primaryDomain) {
+        const r = await fetchFirstActiveListing(primaryDomain);
+        orderId = r.orderId;
+        priceForPersist = r.price;
+      }
+      // Local demo fallback if no external id available yet
+      if (!orderId) orderId = basketId;
 
       setPurchasingBasketId(basketId);
       setPurchaseStep('start');
 
-  const result = await (orderbookClient as any).buyListing({
+  const result = await orderbookClient.buyListing({
         params: {
           orderId,
         },
         signer,
-        chainId: 'eip155:1',
+        chainId: (`eip155:${chainId ?? 1}`) as any,
         onProgress: ((step: string, progress: number) => {
           setPurchaseStep(step);
           setPurchaseProgress(progress);
@@ -202,7 +216,7 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
 
       console.log('Buy result:', result);
   // Persist buy to backend using existing flow
-  await persistBuy.mutateAsync({ orderId, domain: undefined, price: undefined });
+  await persistBuy.mutateAsync({ orderId, domain: primaryDomain, price: priceForPersist });
   alert('Purchase completed.');
       setPurchasingBasketId(undefined);
       setPurchaseProgress(0);
@@ -220,6 +234,27 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
       setPurchaseStep(undefined);
       setLoading(false);
     }
+  };
+
+  // Resolve a listing for a basket by trying its constituent domains against backend endpoint
+  const resolveListingForBasket = async (basketId: string) => {
+    const basket = baskets.find(b => b.id === basketId);
+    if (!basket) return;
+    // Try each domain until one returns a listing with external_order_id
+    for (const d of basket.domains) {
+      try {
+        const res = await fetchListingsByDomain(d.name, true);
+        const first = res.listings[0];
+        if (first && first.external_order_id) {
+          setResolvedByBasket(prev => ({ ...prev, [basketId]: { domain: d.name, orderId: first.external_order_id || undefined, price: first.price } }));
+          return;
+        }
+      } catch (e) {
+        // ignore and continue
+      }
+    }
+    // If none found, clear or set fallback
+    setResolvedByBasket(prev => ({ ...prev, [basketId]: { domain: basket.domains[0]?.name || '', orderId: undefined, price: undefined } }));
   };
 
   const calculateTotalValue = (domains: Domain[]) => {
@@ -423,6 +458,31 @@ export default function DomainBasket({ competitionId, isActive }: DomainBasketPr
                         <span>${domain.price}</span>
                       </div>
                     ))}
+                  </div>
+                  {/* Resolve Listing UI */}
+                  <div className="mb-3 p-3 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-slate-700 dark:text-slate-300">
+                        {resolvedByBasket[basket.id]?.orderId ? (
+                          <>
+                            <div>Matched Listing: <span className="font-mono">{resolvedByBasket[basket.id]?.orderId}</span></div>
+                            <div>Price: ${resolvedByBasket[basket.id]?.price || '—'}</div>
+                            <div>Domain: {resolvedByBasket[basket.id]?.domain}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div>No matched listing yet.</div>
+                            <div className="text-xs text-slate-500">Click Resolve to find a listing with external order id.</div>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => resolveListingForBasket(basket.id)}
+                        className="ml-4 px-3 py-1.5 text-sm rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100"
+                      >
+                        Resolve Listing
+                      </button>
+                    </div>
                   </div>
                   <button
                     onClick={() => handleBuyBasket(basket.id)}

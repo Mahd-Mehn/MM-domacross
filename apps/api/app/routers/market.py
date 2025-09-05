@@ -12,6 +12,8 @@ from app.models.database import User as UserModel
 from datetime import datetime, timezone, timedelta
 from app.broadcast import get_sync_broadcast
 from app.services.metrics_service import invalidate_leaderboard_cache
+from app.services.abuse_guard import abuse_guard
+from fastapi import Request
 
 router = APIRouter()
 
@@ -50,6 +52,26 @@ def _post_trade_hooks(db: Session, trade: Trade, domain_name: str):
         db.add(rf)
         if broadcast:
             broadcast({'type': 'risk_flag', 'trade_id': trade.id, 'flag_type': 'RAPID_FLIP'})
+    # Self-cross detection: same participant executes BUY then SELL (or vice versa) on same domain within 30s (tighter window)
+    window_30s = now - timedelta(seconds=30)
+    for rt in recent_trades:
+        if rt.trade_type != trade.trade_type and rt.timestamp >= window_30s:
+            sc = TradeRiskFlag(trade_id=trade.id, flag_type='SELF_CROSS', details={'against_trade_id': rt.id})
+            db.add(sc)
+            if broadcast:
+                broadcast({'type': 'risk_flag', 'trade_id': trade.id, 'flag_type': 'SELF_CROSS'})
+            break
+    # Circular pattern: domain traded between >=3 distinct participants and returns to original within 10m (simple heuristic)
+    domain_recent = db.query(T).filter(T.domain_token_id==domain_name, T.timestamp >= window_10m).order_by(T.timestamp.asc()).all()
+    participants_seq = [rt.participant_id for rt in domain_recent]
+    if len(set(participants_seq)) >= 3:
+        # pattern if first participant appears again after involving third distinct
+        first = participants_seq[0]
+        if first in participants_seq[2:]:
+            circ = TradeRiskFlag(trade_id=trade.id, flag_type='CIRCULAR_PATTERN', details={'participants': list(dict.fromkeys(participants_seq))})
+            db.add(circ)
+            if broadcast:
+                broadcast({'type': 'risk_flag', 'trade_id': trade.id, 'flag_type': 'CIRCULAR_PATTERN'})
     # Points update: find active epoch
     comp = db.query(C).join(P, P.competition_id == C.id).filter(P.id==part.id).first()
     if not comp:
@@ -203,8 +225,16 @@ def create_listing(
     tx_hash: str | None = None,
     db: Session = Depends(get_db),
     user: UserModel = Depends(get_current_user),
+    request: Request = None,
 ):
     # Persist off-chain listing snapshot (SDK handles on-chain / remote orderbook)
+    # Anti-abuse guards (align with offer/buy endpoints)
+    from app.services.abuse_guard import abuse_guard
+    if abuse_guard.circuit_breaker_active():
+        raise HTTPException(status_code=503, detail='trading paused (circuit breaker)')
+    ip = request.client.host if request and request.client else None  # type: ignore
+    if not abuse_guard.check_rate_limit(user.wallet_address, ip):
+        raise HTTPException(status_code=429, detail='rate limit exceeded')
     _get_or_create_domain(db, domain)
     try:
         price_dec = Decimal(price)
@@ -226,7 +256,14 @@ def record_buy(
     tx_hash: Optional[str] = None,
     db: Session = Depends(get_db),
     user: UserModel = Depends(get_current_user),
+    request: Request = None,
 ):
+    # Anti-abuse: circuit breaker & rate limit
+    if abuse_guard.circuit_breaker_active():
+        raise HTTPException(status_code=503, detail='trading paused (circuit breaker)')
+    ip = request.client.host if request and request.client else None  # type: ignore
+    if not abuse_guard.check_rate_limit(user.wallet_address, ip):
+        raise HTTPException(status_code=429, detail='rate limit exceeded')
     # Simple persistence: mark any listing inactive if domain provided & seller differs.
     if domain:
         name_l = domain.lower()
@@ -276,7 +313,13 @@ def create_offer(
     tx_hash: str | None = None,
     db: Session = Depends(get_db),
     user: UserModel = Depends(get_current_user),
+    request: Request = None,
 ):
+    if abuse_guard.circuit_breaker_active():
+        raise HTTPException(status_code=503, detail='trading paused (circuit breaker)')
+    ip = request.client.host if request and request.client else None  # type: ignore
+    if not abuse_guard.check_rate_limit(user.wallet_address, ip):
+        raise HTTPException(status_code=429, detail='rate limit exceeded')
     _get_or_create_domain(db, domain)
     try:
         price_dec = Decimal(price)
@@ -323,7 +366,13 @@ def accept_offer(
     tx_hash: str | None = None,
     db: Session = Depends(get_db),
     user: UserModel = Depends(get_current_user),
+    request: Request = None,
 ):
+    if abuse_guard.circuit_breaker_active():
+        raise HTTPException(status_code=503, detail='trading paused (circuit breaker)')
+    ip = request.client.host if request and request.client else None  # type: ignore
+    if not abuse_guard.check_rate_limit(user.wallet_address, ip):
+        raise HTTPException(status_code=429, detail='rate limit exceeded')
     # Locate offer by internal id or external_order_id
     q = db.query(Offer).filter(Offer.active == True)  # noqa: E712
     if offer_id is not None:
@@ -402,6 +451,21 @@ def contract_placeholder(domain_name: str) -> str:
     # Could map TLD or domain to a known contract; for now return zero address
     return '0x' + '0'*40
 
+@router.get('/risk/status')
+def risk_status():
+    return {
+        'circuit_breaker_active': abuse_guard.circuit_breaker_active(),
+        'rate_limit_trades_per_minute': settings.rate_limit_trades_per_minute,
+        'circuit_breaker_nav_move_bps': settings.circuit_breaker_nav_move_bps,
+    }
+
+@router.post('/risk/breaker/clear')
+def clear_breaker(user: UserModel = Depends(get_current_user)):
+    _assert_admin(user)
+    # Direct attribute access (internal) – reset breaker
+    abuse_guard._circuit_breaker_triggered_at = None  # type: ignore
+    return {'cleared': True}
+
 
 def _assert_admin(user: UserModel):
     if user.wallet_address.lower() not in (settings.admin_wallets or []):
@@ -421,6 +485,37 @@ def list_missing_external_ids(limit: int = 100, db: Session = Depends(get_db), u
     return {
         'listings_missing': [ { 'id': l.id, 'domain': l.domain_name, 'price': str(l.price) } for l in listings ],
         'offers_missing': [ { 'id': o.id, 'domain': o.domain_name, 'price': str(o.price) } for o in offers ],
+    }
+
+@router.get('/market/listings')
+def get_listings_by_domain(
+    domain: str,
+    only_with_external: bool = True,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+):
+    """Return active listings for a domain. When only_with_external is True,
+    include only rows with external_order_id populated to support SDK mapping.
+    """
+    name_l = (domain or '').lower().strip()
+    if not name_l:
+        raise HTTPException(status_code=400, detail='domain required')
+    q = db.query(Listing).filter(Listing.domain_name == name_l, Listing.active == True)  # noqa: E712
+    if only_with_external:
+        q = q.filter(Listing.external_order_id != None)  # noqa: E711
+    rows = q.order_by(Listing.price.asc()).limit(max(1, min(limit, 50))).all()
+    return {
+        'domain': name_l,
+        'listings': [
+            {
+                'id': r.id,
+                'price': str(r.price),
+                'seller': r.seller_wallet,
+                'created_at': r.created_at,
+                'tx_hash': r.tx_hash,
+                'external_order_id': r.external_order_id,
+            } for r in rows
+        ]
     }
 
 @router.post('/market/backfill-external-id')

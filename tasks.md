@@ -59,17 +59,17 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 
 - [X] Merkle Root Snapshot Generation (periodic scheduler + endpoint + proofs + signing)
 
-- [ ] On-chain Competition Settlement (high priority)
-	- [ ] Smart contract for competition finalization + USDC prize payouts
-	- [ ] Backend flow to submit settlement tx + verify on-chain proof before marking rewards distributed
-	- [ ] End-to-end test (localnet / testnet) and demo script for judges
+- [X] On-chain Competition Settlement (high priority)
+	- [X] Smart contract for competition finalization + USDC prize payouts (CompetitionSettlement.sol + events)
+	- [X] Backend flow to submit settlement tx + verify on-chain proof before marking rewards distributed (submit & verify endpoints + semantic log validation)
+	- [X] End-to-end test (localnet) and demo script (Hardhat test + settle-competition.ts printing tx hash for verification)
 
 ## 5. Incentives & Liquidity Mining
 
-- [ ] Liquidity Mining Schedule (configurable epochs with reward weights)
-- [ ] Bonus Multipliers (early join, volume tiers, holding duration)
-- [ ] Dynamic Emissions Adjuster (reduce rewards if low participation)
-- [ ] Incentive Summary Endpoint (current & next epoch parameters)
+- [X] Liquidity Mining Schedule (configurable epochs with reward weights)
+- [X] Bonus Multipliers (early join, volume tiers, holding duration)
+- [X] Dynamic Emissions Adjuster (adaptive scaling + reduction floor)
+- [X] Incentive Summary Endpoint (current & next epoch parameters, weights, bonuses)
 
 ## 6. Anti-Abuse / Risk Controls
 
@@ -233,6 +233,7 @@ Each item above should be linked inside the repo (or included in the submission 
 - 2025-09-04: Added basic epoch distribution endpoint & WebSocket epoch_distributed event.
 - 2025-09-04: Implemented periodic Merkle snapshot scheduler + stub chain ingestion audit events; unified fee event proofs endpoint & frontend integration with optimistic events.
 - 2025-09-04: Added Settlement Provenance & Verification README section (Merkle proofs, integrity hash chain, streaming export docs, redemption semantic validation env vars).
+ - 2025-09-05: Completed On-chain Competition Settlement (contract, payout events, backend submit/verify with semantic receipt checks, Hardhat test, demo script, frontend admin UI hooks).
 
 ---
 

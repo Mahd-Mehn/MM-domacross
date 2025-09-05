@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+import logging
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
@@ -6,6 +7,7 @@ from app.schemas.auth import NonceRequest, NonceResponse, VerifyRequest, TokenRe
 from app.services import nonce_service, jwt_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/nonce", response_model=NonceResponse)

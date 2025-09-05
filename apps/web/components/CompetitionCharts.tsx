@@ -1,13 +1,12 @@
 "use client";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 
 interface LeaderboardEntry { user_id: number; wallet_address: string; username?: string; portfolio_value: string; rank: number; }
 interface Props { leaderboard: LeaderboardEntry[]; }
 
 // Generates mock time-series points from static leaderboard snapshot (placeholder until real API events available)
-function fabricateSeries(leaderboard: LeaderboardEntry[]) {
-  const base = Date.now();
+function fabricateSeries(leaderboard: LeaderboardEntry[], base: number) {
   return leaderboard.slice(0,5).map((e,i) => {
     const pv = parseFloat(e.portfolio_value || '0');
     const points = Array.from({length: 8}).map((_,j) => ({
@@ -21,7 +20,9 @@ function fabricateSeries(leaderboard: LeaderboardEntry[]) {
 const palette = ['#1d75ff','#7b5cff','#16a34a','#f59e0b','#ef4444'];
 
 export function CompetitionCharts({ leaderboard }: Props){
-  const series = useMemo(()=>fabricateSeries(leaderboard),[leaderboard]);
+  const baseRef = useRef<number>(0);
+  if (!baseRef.current) baseRef.current = Date.now();
+  const series = useMemo(()=>fabricateSeries(leaderboard, baseRef.current),[leaderboard]);
   const aggregate = useMemo(()=>{
     if(series.length===0) return [] as {t:string; total:number;}[];
     return series[0].points.map((_,idx) => ({ t: series[0].points[idx].t, total: series.reduce((acc,s)=> acc + s.points[idx].v,0) }));

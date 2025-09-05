@@ -3,7 +3,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiJson, authHeader } from '../../../lib/api';
 import Link from 'next/link';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '../../../components/ui/Button';
 import dynamic from 'next/dynamic';
 import { ProofStatus } from '../../components/ProofStatus';
@@ -119,7 +119,8 @@ export default function ETFDetailPage(){
   const [eventTypes, setEventTypes] = useState<string[]>(ALL_EVENT_TYPES);
   function toggleEventType(t:string){ setEventTypes(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev, t]); }
   const [toasts, setToasts] = useState<{id:number; msg:string; type:'error'|'info'}[]>([]);
-  function pushToast(msg:string, type:'error'|'info'='info'){ setToasts(t=>[...t,{id:Date.now()+Math.random(), msg, type}]); }
+  const toastSeqRef = useRef(0);
+  function pushToast(msg:string, type:'error'|'info'='info'){ toastSeqRef.current += 1; setToasts(t=>[...t,{id:toastSeqRef.current, msg, type}]); }
   useEffect(()=>{ if(toasts.length){ const timer = setTimeout(()=> setToasts(t=> t.slice(1)), 4000); return ()=> clearTimeout(timer);} }, [toasts]);
 
   const issueMut = useMutation({
@@ -145,11 +146,12 @@ export default function ETFDetailPage(){
   });
   const merkleLatestQ = useQuery({ queryKey:['merkle-latest'], queryFn:()=> apiJson<any>('/api/v1/settlement/merkle/latest'), refetchInterval: 30000 });
   // Optimistic fee event insertion into unified cache
+  const optimisticSeqRef = useRef(0);
   function optimisticAddFeeEvent(eventType: string, amount?: string){
     qc.setQueryData<any>(['etf-fee-events-unified', id, undefined, feeFilterTypes.sort().join(',')], (old:any)=>{
       if(!old || !old.events) return old; // only modify base page
-      const tmpId = -Math.floor(Math.random()*1e9);
-      const ev = { id: tmpId, event_type: eventType, entity_type: 'ETF', payload: { amount: amount || '0', optimistic: true }, created_at: new Date().toISOString() };
+  optimisticSeqRef.current += 1;
+  const ev = { id: -optimisticSeqRef.current, event_type: eventType, entity_type: 'ETF', payload: { amount: amount || '0', optimistic: true }, created_at: new Date().toISOString() };
       // Prepend if passes filter
       if(feeFilterTypes.includes(eventType) || feeFilterTypes.length===5){
         return { ...old, events: [ev, ...old.events].slice(0, 100) };

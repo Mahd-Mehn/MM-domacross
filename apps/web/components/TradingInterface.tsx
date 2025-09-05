@@ -29,6 +29,8 @@ interface TradingInterfaceProps {
 }
 
 export default function TradingInterface({ competitionId, isActive }: TradingInterfaceProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(()=> { setMounted(true); }, []);
   const { address } = useAccount();
   const [activeTab, setActiveTab] = useState<'market' | 'portfolio' | 'orders'>('market');
   const [domains, setDomains] = useState<Domain[]>([]);
@@ -129,6 +131,10 @@ export default function TradingInterface({ competitionId, isActive }: TradingInt
       setLoading(false);
     }
   };
+
+  if (!mounted) {
+    return <div className="glass-dark rounded-xl p-10 text-center border border-white/10 text-slate-500 text-sm">Initializing trading interface…</div>;
+  }
 
   if (!isActive) {
     return (

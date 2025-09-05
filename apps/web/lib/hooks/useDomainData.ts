@@ -16,7 +16,7 @@ export interface DomainApiResponse {
     last_floor_price: string | null;
     last_estimated_value: string | null;
   };
-  listings: Array<{ id: number; price: string; seller: string; created_at: string; tx_hash: string | null }>;
+  listings: Array<{ id: number; price: string; seller: string; created_at: string; tx_hash: string | null; external_order_id?: string | null }>;
   offers: Array<{ id: number; price: string; buyer: string; created_at: string; tx_hash: string | null }>;
   valuation: { value: string; model_version: string; created_at: string } | null;
 }

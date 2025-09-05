@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRef } from 'react';
 import { orderbookClient } from "../orderbookClient";
 import { authHeader, apiJson } from "../api";
 import { useWalletClient, useAccount } from "wagmi";
@@ -22,6 +23,7 @@ async function sdkUnavailableFallback(path: string, payload: any) {
 
 export function useCreateListing() {
   const qc = useQueryClient();
+  const seqRef = useRef(0);
   const { data: walletClient } = useWalletClient();
   const { chainId, address } = useAccount();
   const toasts = useToasts();
@@ -60,7 +62,7 @@ export function useCreateListing() {
         qc.setQueryData(key, {
           ...prev,
           listings: [
-            { id: Date.now(), price: vars.price, seller: 'you', optimistic: true },
+            { id: ++seqRef.current, price: vars.price, seller: 'you', optimistic: true },
             ...(prev.listings || [])
           ]
         });
@@ -134,6 +136,7 @@ export function usePersistBuy() {
 
 export function useMakeOffer() {
   const qc = useQueryClient();
+  const offerSeqRef = useRef(0);
   const { data: walletClient } = useWalletClient();
   const { chainId, address } = useAccount();
   const toasts = useToasts();
@@ -173,7 +176,7 @@ export function useMakeOffer() {
         qc.setQueryData(key, {
           ...prev,
           offers: [
-            { id: Date.now(), price: vars.price, buyer: 'you', optimistic: true },
+            { id: ++offerSeqRef.current, price: vars.price, buyer: 'you', optimistic: true },
             ...(prev.offers || [])
           ]
         });
@@ -268,6 +271,34 @@ export function useAcceptOffer() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['domain'] });
       qc.invalidateQueries({ queryKey: ['valuation-batch'] });
+    }
+  });
+}
+
+// --- Competition Settlement Hooks ---
+
+interface DistributionItem { address: string; amount: string; }
+
+export function useSubmitCompetitionSettlement() {
+  return useMutation({
+    mutationFn: async (p: { competitionId: number; txHash: string; distribution?: DistributionItem[] }) => {
+      return apiJson(`/api/v1/settlement/competitions/${p.competitionId}/submit`, {
+        method: 'POST',
+        headers: { ...authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tx_hash: p.txHash, distribution: p.distribution })
+      });
+    }
+  });
+}
+
+export function useVerifyCompetitionSettlement() {
+  return useMutation({
+    mutationFn: async (p: { competitionId: number; txHash?: string }) => {
+      const params = p.txHash ? `?tx_hash=${encodeURIComponent(p.txHash)}` : '';
+      return apiJson(`/api/v1/settlement/competitions/${p.competitionId}/verify${params}`, {
+        method: 'POST',
+        headers: { ...authHeader() }
+      });
     }
   });
 }

@@ -319,6 +319,7 @@ class ParticipantHolding(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
     __table_args__ = (UniqueConstraint('participant_id','domain_name', name='uq_participant_domain_holding'),)
 
+
 # Generic immutable audit log capturing critical state transitions (provenance layer)
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
@@ -347,3 +348,73 @@ class MerkleAccumulator(Base):
     level = Column(Integer, nullable=False, unique=True, index=True)
     node_hash = Column(String(66), nullable=False)  # 0x + hex
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
+
+# Idempotency keys (simple replay guard)
+class IdempotencyKey(Base):
+    __tablename__ = 'idempotency_keys'
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    route = Column(String(128), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    last_result_hash = Column(String(66), nullable=True)
+
+# ----------------------
+# Incentives / Liquidity Mining (Phase 5 scaffolding)
+# ----------------------
+
+class IncentiveSchedule(Base):
+    __tablename__ = 'incentive_schedules'
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    competition_id = Column(Integer, ForeignKey('competitions.id'), nullable=True, index=True)  # optional scope
+    start_time = Column(DateTime(timezone=True), nullable=False)
+    end_time = Column(DateTime(timezone=True), nullable=False)
+    epoch_duration_minutes = Column(Integer, nullable=False, default=60)  # granularity of emission windows
+    base_emission_per_epoch = Column(Numeric(24,8), nullable=False, default=0)  # raw units (off-chain points or token units future)
+    weight_volume_bps = Column(Integer, nullable=False, default=4000)  # 40%
+    weight_pnl_bps = Column(Integer, nullable=False, default=3000)     # 30%
+    weight_turnover_bps = Column(Integer, nullable=False, default=2000) # 20%
+    weight_concentration_bps = Column(Integer, nullable=False, default=1000) # 10% (inverse concentration)
+    bonus_early_join_bps = Column(Integer, nullable=False, default=500)  # applied once per user first epoch (5% extra)
+    min_participants_full_emission = Column(Integer, nullable=False, default=10)
+    emission_reduction_factor_bps = Column(Integer, nullable=False, default=5000)  # 50% reduction if below threshold
+    # Advanced bonus / multiplier configuration (JSON arrays of objects)
+    # Example volume_tier_thresholds: [{"threshold": 1000, "bonus_bps": 500}, {"threshold": 5000, "bonus_bps": 1500}]
+    volume_tier_thresholds = Column(JSON, nullable=True)
+    # Example holding_duration_tiers: [{"min_minutes": 30, "bonus_bps": 300}, {"min_minutes": 120, "bonus_bps": 800}]
+    holding_duration_tiers = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+class IncentiveEpoch(Base):
+    __tablename__ = 'incentive_epochs'
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey('incentive_schedules.id'), nullable=False, index=True)
+    epoch_index = Column(Integer, nullable=False)
+    start_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    end_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    planned_emission = Column(Numeric(24,8), nullable=False)
+    actual_emission = Column(Numeric(24,8), nullable=True)
+    participation_count = Column(Integer, nullable=True)
+    adjusted = Column(Boolean, default=False, index=True)
+    finalized_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    __table_args__ = (UniqueConstraint('schedule_id','epoch_index', name='uq_incentive_schedule_epoch'),)
+
+class IncentiveUserPoint(Base):
+    __tablename__ = 'incentive_user_points'
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey('incentive_schedules.id'), nullable=False, index=True)
+    epoch_id = Column(Integer, ForeignKey('incentive_epochs.id'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    volume = Column(Numeric(24,8), nullable=True)
+    pnl = Column(Numeric(24,8), nullable=True)
+    turnover_ratio = Column(Numeric(24,8), nullable=True)
+    concentration_index = Column(Numeric(24,8), nullable=True)
+    base_points = Column(Numeric(24,8), nullable=True)
+    bonus_points = Column(Numeric(24,8), nullable=True)
+    total_points = Column(Numeric(24,8), nullable=True)
+    reward_amount = Column(Numeric(24,8), nullable=True)
+    distributed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    __table_args__ = (UniqueConstraint('epoch_id','user_id', name='uq_incentive_epoch_user'),)

@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useState, useEffect } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, useRef } from 'react';
 
 export interface ToastItem { id: number; msg: string; type: 'info' | 'error' | 'success' | 'progress'; progress?: number; }
 
@@ -21,8 +21,10 @@ export function useToasts(){
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
+  const seqRef = useRef(0);
   const push = useCallback((msg: string, type: ToastItem['type']='info', opts?: { id?: number; progress?: number }) => {
-    const id = opts?.id ?? Date.now() + Math.random();
+    if (!opts?.id) seqRef.current += 1;
+    const id = opts?.id ?? seqRef.current;
     setToasts(t=>[...t, { id, msg, type, progress: opts?.progress }]);
     return id;
   },[]);

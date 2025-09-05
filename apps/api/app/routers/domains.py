@@ -24,7 +24,14 @@ async def get_domain(name: str, db: Session = Depends(get_db)):
             "last_estimated_value": str(domain.last_estimated_value) if domain.last_estimated_value is not None else None,
         },
         "listings": [
-            {"id": l.id, "price": str(l.price), "seller": l.seller_wallet, "created_at": l.created_at, "tx_hash": l.tx_hash}
+            {
+                "id": l.id,
+                "price": str(l.price),
+                "seller": l.seller_wallet,
+                "created_at": l.created_at,
+                "tx_hash": l.tx_hash,
+                "external_order_id": l.external_order_id,
+            }
             for l in listings
         ],
         "offers": [

@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { getToken, setToken, clearToken, decodeJwt } from '../lib/token';
 import { useAccount, useSignMessage } from 'wagmi';
 import { requestNonce, verifySignature } from '../lib/auth';
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setTok] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
+  const inFlightRef = useRef(false);
 
   // Load existing token
   useEffect(()=> {
@@ -42,30 +43,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 
   const signIn = useCallback(async ()=>{
+  if (authenticating || inFlightRef.current) return; // debounce parallel
     if (!isConnected || !address) return;
-    // If token valid for 2+ minutes skip
-    if (token && expiresAt && expiresAt - Date.now() > 2*60*1000) return;
-    setAuthenticating(true);
+    if (typeof signMessageAsync !== 'function') {
+      console.warn('signMessageAsync unavailable - connector not ready');
+      return;
+    }
+    if (token && expiresAt && expiresAt - Date.now() > 2*60*1000) return; // still fresh
+  setAuthenticating(true); inFlightRef.current = true;
     const toastId = toasts.push('Authenticating', 'progress', { progress: 10 });
-    try {
+    const attempt = async () => {
       const { nonce } = await requestNonce(address);
       toasts.updateProgress(toastId, 35, 'Nonce');
       const message = `Sign to authenticate with DomaCross\nNonce: ${nonce}`;
       const signature = await signMessageAsync({ message });
       toasts.updateProgress(toastId, 70, 'Signature');
-      const resp = await verifySignature(address, nonce, message, signature);
+      return verifySignature(address, nonce, message, signature);
+    };
+    try {
+      let resp;
+      try {
+        resp = await attempt();
+      } catch (e:any) {
+        // Automatic one-time retry for consumed/expired nonce race
+        if ((e?.message || '').includes('Nonce invalid') || (e?.message || '').includes('Nonce not present')) {
+          resp = await attempt();
+        } else {
+          throw e;
+        }
+      }
       setToken(resp.access_token);
       const dec = decodeJwt(resp.access_token);
       setTok(resp.access_token);
       if (dec?.exp) setExpiresAt(dec.exp * 1000);
       toasts.success(toastId, 'Signed in');
     } catch (e:any) {
-      console.error(e);
-      toasts.error(toastId, 'Auth failed');
+      console.error('Auth error', e);
+      const raw = e?.message || '';
+      const msg = raw.includes('chain') ? 'Wallet chain mismatch' : (raw.includes('Nonce') ? 'Auth retry failed' : 'Auth failed');
+      toasts.error(toastId, msg);
     } finally {
-      setAuthenticating(false);
+  setAuthenticating(false); inFlightRef.current = false;
     }
-  }, [address, isConnected, signMessageAsync, token, expiresAt, toasts]);
+  }, [address, isConnected, signMessageAsync, token, expiresAt, toasts, authenticating]);
 
   // Auto clear expired + proactive refresh 60s prior (after signIn defined)
   useEffect(()=>{

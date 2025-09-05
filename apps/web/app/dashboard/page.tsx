@@ -1,7 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useIncentiveSchedules, useCurrentIncentiveEpoch, useEpochPoints } from '../../lib/hooks/useIncentives';
+import { useState, useEffect, useRef } from 'react';
 import { apiJson, authHeader } from "../../lib/api";
+import { useAuth } from "../../components/AuthProvider";
 import { Metric } from "../../components/ui/Metric";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
@@ -13,12 +16,13 @@ interface UserPortfolio {
   domains_owned: number;
 }
 
-interface Competition {
+interface CompetitionSummary {
   id: number;
   name: string;
-  status: string;
-  portfolio_value: string;
-  rank?: number;
+  start_time: string;
+  end_time: string;
+  entry_fee?: string;
+  has_joined?: boolean | null;
 }
 
 export default function DashboardPage() {
@@ -29,15 +33,28 @@ export default function DashboardPage() {
     domains_owned: 3,
   };
 
-  const mockCompetitions: Competition[] = [
-    {
-      id: 1,
-      name: "Q3 Domain Championship",
-      status: "active",
-      portfolio_value: "1.2",
-      rank: 5,
-    },
-  ];
+  const { address } = useAuth();
+  const { data: competitions, isLoading } = useQuery({
+    queryKey: ['competitions-joined', address],
+    enabled: !!address,
+    queryFn: () => apiJson<CompetitionSummary[]>(`/api/v1/competitions?include_joined_status=true&joined_only=true`, { headers: authHeader() })
+  });
+  const joined = competitions || [];
+  // Incentives (take first schedule as simple selection)
+  const schedulesQ = useIncentiveSchedules();
+  const [selectedSchedule, setSelectedSchedule] = useState<number|undefined>(undefined);
+  useEffect(()=> {
+    if (!selectedSchedule && schedulesQ.data && schedulesQ.data.length>0){
+      setSelectedSchedule(schedulesQ.data[0].id);
+    }
+  }, [schedulesQ.data, selectedSchedule]);
+  const currentEpochQ = useCurrentIncentiveEpoch(selectedSchedule);
+  const epochIndex = currentEpochQ.data?.epoch?.index;
+  const pointsQ = useEpochPoints(selectedSchedule, epochIndex);
+  const incentiveUserRow = (pointsQ.data?.points || pointsQ.data?.rows || []).find((r:any)=> String(r.user_id) === String(address));
+
+  const nowRef = useRef<number>(0);
+  if (!nowRef.current) nowRef.current = Date.now();
 
   return (
     <main className="space-y-12">
@@ -66,20 +83,21 @@ export default function DashboardPage() {
               <CardDescription>Real-time standing across active arenas.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {mockCompetitions.length>0 ? mockCompetitions.map(c => (
-                <div key={c.id} className="rounded-lg px-5 py-4 flex flex-col md:flex-row md:items-center gap-4 border border-slate-200/70 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 backdrop-blur transition-colors">
-                  <div className="flex-1">
-                    <div className="font-medium text-slate-800 dark:text-white tracking-tight flex items-center gap-2 transition-colors">{c.name} <Badge variant={c.status==='active'?'success':'neutral'}>{c.status}</Badge></div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 transition-colors">Portfolio Value <span className="text-slate-800 dark:text-slate-200 font-semibold transition-colors">{c.portfolio_value} ETH</span></div>
+              {isLoading && <div className="text-slate-500 dark:text-slate-500 text-sm py-8 text-center animate-pulse">Loading your competitions...</div>}
+              {!isLoading && joined.length>0 ? joined.map(c => {
+                const active = nowRef.current >= Date.parse(c.start_time) && nowRef.current < Date.parse(c.end_time);
+                return (
+                  <div key={c.id} className="rounded-lg px-5 py-4 flex flex-col md:flex-row md:items-center gap-4 border border-slate-200/70 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 backdrop-blur transition-colors">
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-800 dark:text-white tracking-tight flex items-center gap-2 transition-colors">{c.name} <Badge variant={active?'success':'neutral'}>{active? 'active':'inactive'}</Badge></div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 transition-colors">Entry Fee {c.entry_fee || '--'}</div>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <Link href={`/competitions/${c.id}`} className="text-xs text-brand-300 hover:text-brand-200 font-medium">Details →</Link>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-6">
-                    {c.rank && <div className="text-center"><div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Rank</div><div className="text-xl font-semibold">#{c.rank}</div></div>}
-                    <Link href={`/competitions/${c.id}`} className="text-xs text-brand-300 hover:text-brand-200 font-medium">Details →</Link>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-slate-500 dark:text-slate-500 text-sm py-12 text-center transition-colors">No active competitions. <Link href="/competitions" className="text-brand-600 dark:text-brand-300 hover:underline">Join one now</Link>.</div>
-              )}
+                );
+              }) : (!isLoading && <div className="text-slate-500 dark:text-slate-500 text-sm py-12 text-center transition-colors">No joined competitions. <Link href="/competitions" className="text-brand-600 dark:text-brand-300 hover:underline">Browse competitions</Link>.</div>)}
             </CardContent>
           </Card>
 
@@ -94,6 +112,31 @@ export default function DashboardPage() {
           </Card>
         </div>
         <div className="space-y-8">
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Your Points</CardTitle>
+                {schedulesQ.data && schedulesQ.data.length>0 && (
+                  <select value={selectedSchedule||''} onChange={e=> setSelectedSchedule(Number(e.target.value))} className="text-xs bg-slate-700/40 border border-slate-600 rounded px-2 py-1">
+                    {schedulesQ.data.map((s:any)=> <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
+              </div>
+              <CardDescription>{currentEpochQ.data?.epoch ? `Epoch #${currentEpochQ.data.epoch.index}` : 'No active epoch'}</CardDescription>
+            </CardHeader>
+            <CardContent className="text-xs space-y-1">
+              {!currentEpochQ.data?.epoch && <div className="text-slate-500">Incentive schedule inactive.</div>}
+              {currentEpochQ.data?.epoch && (
+                <>
+                  <div><span className="text-slate-500">Total:</span> {incentiveUserRow?.total_points || '0'}</div>
+                  <div><span className="text-slate-500">Base:</span> {incentiveUserRow?.base_points || '0'} <span className="ml-3 text-slate-500">Bonus:</span> {incentiveUserRow?.bonus_points || '0'}</div>
+                  <div><span className="text-slate-500">Volume:</span> {incentiveUserRow?.volume || '0'} <span className="ml-3 text-slate-500">PnL:</span> {incentiveUserRow?.pnl || '0'}</div>
+                  <div><span className="text-slate-500">Turnover:</span> {incentiveUserRow?.turnover_ratio || '0'} <span className="ml-3 text-slate-500">Diversification:</span> {incentiveUserRow?.concentration_index ? (1-Number(incentiveUserRow.concentration_index)).toFixed(4) : '0'}</div>
+                  {incentiveUserRow?.reward_amount && <div><span className="text-slate-500">Reward (est):</span> {incentiveUserRow.reward_amount}</div>}
+                </>
+              )}
+            </CardContent>
+          </Card>
           <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
             <CardHeader>
               <CardTitle>Performance Snapshot</CardTitle>
