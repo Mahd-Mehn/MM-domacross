@@ -65,6 +65,17 @@ async def lifespan(app_: FastAPI):
         logger.info("[startup] Blockchain service initialized (web3 ready)")
     else:
         logger.info("[startup] Blockchain service deferred (no web3)")
+    # Warn if ephemeral JWT keys are in use for prod-like env
+    try:
+        from base64 import b64decode
+        # Heuristic: generated ephemeral keys in config are 2048-bit PKCS8 PEMs; check for typical header pattern length
+        priv_b64 = settings.jwt_private_key_b64
+        if settings.app_env.lower() in ("prod", "production") and priv_b64:
+            decoded = b64decode(priv_b64.encode('utf-8'), validate=False)
+            if b"BEGIN PRIVATE KEY" in decoded:
+                logger.warning("[security] Production app_env with inline (possibly ephemeral) JWT private key detected. Replace with managed secret before deployment.")
+    except Exception:
+        logger.exception("[security] Ephemeral key detection failed")
     # Optionally start background poller
     async def poll_loop():
         interval = 10

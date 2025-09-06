@@ -1,0 +1,76 @@
+%% DomaCross Architecture (Mermaid)
+%% Saved copy referenced by README
+flowchart LR
+  subgraph User & Client
+    A[User Actions]
+    UI[Next.js Dashboard]
+  end
+
+  A --> UI
+  UI -->|REST / WS| API[(FastAPI Backend)]
+
+  subgraph Trading
+    L[Listings]
+    O[Offers]
+    T[Trades]
+    DS[(Domain State)]
+  end
+
+  API --> L
+  API --> O
+  L --> T
+  O --> T
+  T --> DS
+  L --> DS
+  O --> DS
+
+  subgraph Valuation
+    VE[Valuation Engine\n(factors)] --> EN[Ensemble Stub]
+  end
+  DS --> VE
+  EN --> VEVT{{valuation_update WS Event}}
+
+  subgraph Competition
+    CE[Competition Engine]
+    LEAD{{leaderboard_delta WS Event}}
+  end
+  T --> CE
+  VEVT --> CE
+  CE --> LEAD
+
+  subgraph ETF
+    NAV[ETF NAV Service]
+    FEES{{fee / flow events}}
+  end
+  DS --> NAV
+  VE --> NAV
+  NAV --> FEES
+  NAV --> APY[(APY / NAV History)]
+
+  subgraph Incentives
+    EM[Emission Scheduler]
+    RW[Rewards]
+  end
+  CE --> EM
+  FEES --> EM
+  EM --> RW --> A
+
+  subgraph Integrity
+    AE[Audit Events]
+    MS[Merkle Snapshots]
+  end
+  T --> AE
+  CE --> AE
+  FEES --> AE
+  VEVT --> AE
+  AE --> MS
+
+  subgraph Risk
+    RG[Risk / Abuse Heuristics]
+    RF{{risk_flag WS Event}}
+  end
+  T --> RG --> RF
+  RF --> CE
+
+  classDef ws fill=#e3f2fd,stroke=#2196f3,color=#0d47a1
+  class VEVT,LEAD,FEES,RF ws

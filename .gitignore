@@ -40,3 +40,5 @@ MIGRATIONS.md
 jwtRS256.pem
 jwtRS256.pub.pem
 cache/
+tasks.md
+EVENTS.md

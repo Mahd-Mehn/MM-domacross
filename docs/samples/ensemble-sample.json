@@ -1,0 +1,22 @@
+[
+  {
+    "domain": "alpha.one",
+    "heuristic": "123.45",
+    "external_oracle": "121.98",
+    "ml_model": "124.10",
+    "ensemble_value": "123.20",
+    "dispersion_max_pct": 0.0174,
+    "confidence_multiplier": "0.9826",
+    "chosen_source": "heuristic_v1"
+  },
+  {
+    "domain": "bravo.one",
+    "heuristic": "95.10",
+    "external_oracle": "93.20",
+    "ml_model": "94.80",
+    "ensemble_value": "94.54",
+    "dispersion_max_pct": 0.0202,
+    "confidence_multiplier": "0.9798",
+    "chosen_source": "ml_model"
+  }
+]

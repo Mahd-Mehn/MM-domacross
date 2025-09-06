@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     valuation_weight_floor: float = 0.25
     valuation_weight_orderbook: float = 0.20
     valuation_weight_time_decay: float = 0.10
+    # Ensemble (Phase 10) – when enabled, a secondary blending layer chooses among
+    # heuristic (baseline current engine), external_oracle (stub), and ml_model (stub)
+    valuation_use_ensemble: bool = False
+    ensemble_weight_heuristic: float = 0.55
+    ensemble_weight_external: float = 0.25
+    ensemble_weight_ml: float = 0.20
     valuation_trade_lookback_minutes: int = 720
     valuation_decay_lambda: float = 0.00005
     valuation_min_samples_trade: int = 2

@@ -86,6 +86,22 @@ Signals NAV / internal snapshot loop completed (aggregation or valuation drift p
 { "type": "nav_update", "ts": "2025-09-04T12:35:10.000Z" }
 ```
 
+### valuation_update
+Broadcasts domain valuation refreshes including optional deltas and confidence.
+```json
+{
+	"type": "valuation_update",
+	"domain": "alpha.one",
+	"value": "100.00",
+	"previous_value": "100.00",
+	"change_pct": 0.0,
+	"confidence": 0.62,
+	"chosen_source": "heuristic",
+	"placeholder_created": true,
+	"ts": "2025-09-06T10:12:00.000Z"
+}
+```
+
 ### leaderboard_delta
 Partial update conveying only changed participants (typically rank window top N or those impacted by a trade).
 ```json
@@ -319,4 +335,6 @@ asyncio.run(run())
 
 ## Change Log
 v1 (current): Initial catalog with detailed schemas, control frames, and planned events.
+v1.1: Added valuation_update (current section), expanded risk_flag documentation, placeholder_created flag.
+
 

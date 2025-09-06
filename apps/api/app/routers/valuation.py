@@ -145,7 +145,7 @@ async def valuation_factors(domain: str, db: Session = Depends(get_db)):
         'freshness_score': round(freshness, 4),
         'decay_factor': decay_factor,
         'confidence_score': confidence_score,
-        'chosen_source': chosen_source,
+    'chosen_source': (factors_blob.get('ensemble_chosen_source') if factors_blob else None) or chosen_source,
         'components': components,
         'latest': {  # legacy nested structure
             'value': str(val.value) if val else None,

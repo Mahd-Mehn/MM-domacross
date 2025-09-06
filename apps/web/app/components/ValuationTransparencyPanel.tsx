@@ -51,7 +51,7 @@ export default function ValuationTransparencyPanel({ domain }: { domain: string 
             </div>
           )}
           <div>
-            <div className="text-slate-400 mb-1 text-[11px]">Factors</div>
+            <div className="text-slate-400 mb-1 text-[11px] flex items-center gap-2">Factors {(!data.latest?.factors && !data.latest?.value) && (<span className="px-2 py-0.5 rounded bg-slate-700 text-slate-300">placeholder</span>)}</div>
             {data.latest?.factors ? (
               <table className="w-full text-[11px] border-separate border-spacing-y-1">
                 <tbody>
@@ -63,7 +63,11 @@ export default function ValuationTransparencyPanel({ domain }: { domain: string 
                   ))}
                 </tbody>
               </table>
-            ) : <div className="text-slate-500 text-[11px]">No factor data</div>}
+            ) : (
+              <div className="text-slate-500 text-[11px]">
+                No valuation yet. First trade / listing / orderbook data will establish initial factors.
+              </div>
+            )}
           </div>
         </div>
       )}
