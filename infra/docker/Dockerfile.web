@@ -6,13 +6,13 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 COPY package.json pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN pnpm install --prefer-offline
+RUN npm install
 COPY . .
 RUN chown -R nextjs:nodejs /app
 WORKDIR /app/apps/web
 USER nextjs
-RUN pnpm build || true
+RUN npm run build || true
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000 || exit 1
-CMD ["pnpm", "dev"]
+CMD ["npm", "run", "start"]
