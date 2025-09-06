@@ -1,18 +1,36 @@
 # syntax=docker/dockerfile:1
 FROM node:20-alpine
-WORKDIR /app
+
+# System deps (curl already used for healthcheck)
 RUN apk add --no-cache curl
+
+# Create non-root user
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
-RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
-COPY package.json pnpm-workspace.yaml ./
-COPY apps/web/package.json apps/web/package.json
-RUN npm install
-COPY . .
-RUN chown -R nextjs:nodejs /app
+
+# Set workdir directly to the web app for dependency install
 WORKDIR /app/apps/web
-USER nextjs
+
+# Copy manifests first (add package-lock.json if present)
+COPY apps/web/package.json ./
+# COPY apps/web/package-lock.json ./
+
+# Install deps (prefer ci if lockfile uncommented)
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+# Now copy the rest of the repo
+WORKDIR /app
+COPY . .
+
+# Ensure ownership
+RUN chown -R nextjs:nodejs /app
+
+# Build (needs dev deps present)
+WORKDIR /app/apps/web
 RUN npm run build || true
+
+USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000 || exit 1
-CMD ["npm", "run", "start"]
+  CMD curl -f http://localhost:3000 || exit 1
+
+CMD ["npm","run","start"]
