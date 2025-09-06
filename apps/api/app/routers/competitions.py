@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List
 from fastapi import Query
@@ -10,6 +11,7 @@ from app.models.database import (
     CompetitionEpoch,
     CompetitionReward,
     PortfolioValueHistory,
+    CompetitionEscrowBalance,
 )
 from app.schemas.competition import (
     Competition,
@@ -136,11 +138,79 @@ async def create_competition(competition: CompetitionCreate, db: Session = Depen
     if not comp_data.get('contract_address'):
         from uuid import uuid4
         comp_data['contract_address'] = f"offchain-{uuid4().hex[:20]}"
+    # Initialize default status & prize pool fields
+    comp_data['status'] = 'PENDING'
     db_competition = CompetitionModel(**comp_data)
     db.add(db_competition)
     db.commit()
     db.refresh(db_competition)
     return db_competition
+
+
+@router.post('/competitions/{competition_id}/lifecycle/activate', response_model=Competition)
+def activate_competition(competition_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    comp = db.query(CompetitionModel).filter(CompetitionModel.id==competition_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail='Competition not found')
+    if comp.status != 'PENDING':
+        raise HTTPException(status_code=400, detail=f'Cannot activate from {comp.status}')
+    now = datetime.now(timezone.utc)
+    if comp.start_time > now:
+        raise HTTPException(status_code=400, detail='Start time not reached')
+    comp.status = 'ACTIVE'
+    db.commit(); db.refresh(comp)
+    return comp
+
+@router.post('/competitions/{competition_id}/lifecycle/end', response_model=Competition)
+def end_competition(competition_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    comp = db.query(CompetitionModel).filter(CompetitionModel.id==competition_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail='Competition not found')
+    if comp.status not in ('ACTIVE',):
+        raise HTTPException(status_code=400, detail=f'Cannot end from {comp.status}')
+    now = datetime.now(timezone.utc)
+    if comp.end_time > now:
+        raise HTTPException(status_code=400, detail='End time not reached')
+    comp.status = 'ENDED'
+    db.commit(); db.refresh(comp)
+    return comp
+
+@router.post('/competitions/{competition_id}/lifecycle/claimable', response_model=Competition)
+def mark_claimable(competition_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    comp = db.query(CompetitionModel).filter(CompetitionModel.id==competition_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail='Competition not found')
+    if comp.status != 'ENDED':
+        raise HTTPException(status_code=400, detail=f'Cannot mark claimable from {comp.status}')
+    comp.status = 'CLAIMABLE'
+    db.commit(); db.refresh(comp)
+    return comp
+
+class EscrowDepositRequest(BaseModel):
+    amount_usdc: Decimal
+
+class EscrowDepositResponse(BaseModel):
+    competition_id: int
+    new_total: Decimal
+    user_amount: Decimal
+
+@router.post('/competitions/{competition_id}/escrow/deposit', response_model=EscrowDepositResponse)
+def deposit_escrow(competition_id: int, payload: EscrowDepositRequest, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    comp = db.query(CompetitionModel).filter(CompetitionModel.id==competition_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail='Competition not found')
+    if comp.status not in ('PENDING','ACTIVE'):
+        raise HTTPException(status_code=400, detail='Deposits closed')
+    row = db.query(CompetitionEscrowBalance).filter(CompetitionEscrowBalance.competition_id==competition_id, CompetitionEscrowBalance.user_id==current_user.id).first()
+    if not row:
+        row = CompetitionEscrowBalance(competition_id=competition_id, user_id=current_user.id, amount_usdc=payload.amount_usdc)
+        db.add(row)
+    else:
+        row.amount_usdc = row.amount_usdc + payload.amount_usdc  # type: ignore
+    # Update prize pool
+    comp.prize_pool_usdc = (comp.prize_pool_usdc or Decimal(0)) + payload.amount_usdc  # type: ignore
+    db.commit(); db.refresh(comp); db.refresh(row)
+    return EscrowDepositResponse(competition_id=competition_id, new_total=Decimal(comp.prize_pool_usdc or 0), user_amount=Decimal(row.amount_usdc))
 
 
 @router.post("/competitions/{competition_id}/join", response_model=Competition)

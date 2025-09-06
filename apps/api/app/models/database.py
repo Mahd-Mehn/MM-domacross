@@ -36,6 +36,9 @@ class Competition(Base):
     entry_fee = Column(Numeric(18, 8), nullable=True)
     rules = Column(JSON, nullable=True)
     season_id = Column(Integer, ForeignKey('seasons.id'), nullable=True, index=True)
+    status = Column(String(16), nullable=False, index=True, default='PENDING')  # PENDING | ACTIVE | ENDED | CLAIMABLE
+    prize_pool_usdc = Column(Numeric(24,8), nullable=True)
+    last_status_transition_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
 
 class Participant(Base):
     __tablename__ = "participants"
@@ -306,12 +309,69 @@ class DomainWhitelist(Base):
     active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+# Persistent basket records (derived asset prototype)
+class DomainBasketRecord(Base):
+    __tablename__ = 'domain_basket_records'
+    id = Column(Integer, primary_key=True, index=True)
+    onchain_basket_id = Column(String(64), nullable=True, index=True)
+    creator_user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    domain_names = Column(JSON, nullable=False)  # list[str]
+    weights_bps = Column(JSON, nullable=False)   # list[int]
+    token_uri = Column(String(512), nullable=True)
+    total_value = Column(Numeric(18,8), nullable=True)
+    redeemed = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    redeemed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
 class GovernanceConfig(Base):
     __tablename__ = 'governance_config'
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(64), unique=True, nullable=False, index=True)
     value = Column(JSON, nullable=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
+
+class GovernanceConfigAudit(Base):
+    __tablename__ = 'governance_config_audit'
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(64), nullable=False, index=True)
+    old_value = Column(JSON, nullable=True)
+    new_value = Column(JSON, nullable=True)
+    admin_user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Optional hash chaining for tamper evidence (prev hash stored in new_value payload if desired)
+
+class GovernanceConfigPending(Base):
+    __tablename__ = 'governance_config_pending'
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(64), nullable=False, index=True)
+    new_value = Column(JSON, nullable=False)
+    activate_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    requested_by_user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    applied = Column(Boolean, default=False, index=True)
+    __table_args__ = (UniqueConstraint('key','activate_at', name='uq_governance_pending_key_time'),)
+
+class CompetitionEscrowBalance(Base):
+    __tablename__ = 'competition_escrow_balances'
+    id = Column(Integer, primary_key=True, index=True)
+    competition_id = Column(Integer, ForeignKey('competitions.id'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    amount_usdc = Column(Numeric(24,8), nullable=False, default=0)
+    deposited_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    refunded = Column(Boolean, default=False, index=True)
+    refunded_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    __table_args__ = (UniqueConstraint('competition_id','user_id', name='uq_competition_user_escrow'),)
+
+class BasketTokenizationRecord(Base):
+    __tablename__ = 'basket_tokenization_records'
+    id = Column(Integer, primary_key=True, index=True)
+    basket_record_id = Column(Integer, ForeignKey('domain_basket_records.id'), nullable=False, index=True)
+    onchain_token_contract = Column(String(42), nullable=True, index=True)
+    onchain_token_id = Column(String(128), nullable=True, index=True)
+    minted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    nav_at_mint = Column(Numeric(24,8), nullable=True)
+    active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 class AdminActionAudit(Base):
     __tablename__ = 'admin_action_audit'

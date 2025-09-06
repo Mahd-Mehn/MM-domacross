@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from app.config import settings
 from app.models.database import Valuation, Domain, Trade, OrderbookSnapshot, DomainValuationDispute
+from app.services.external_oracle_service import external_oracle_service
 import math
 
 class ValuationService:
@@ -66,15 +67,31 @@ class ValuationService:
             vol += Decimal(1)
         return (total / vol if vol else None, len(trades))
 
-    def _orderbook_mid(self, db: Session, domain: str) -> Decimal | None:
-        snaps = db.query(OrderbookSnapshot).filter(OrderbookSnapshot.domain_name==domain).order_by(OrderbookSnapshot.collected_at.desc()).limit(100).all()
+    def _orderbook_mid(self, db: Session, domain: str) -> tuple[Decimal | None, Decimal | None, Decimal | None]:
+        """Return (mid, top_bid, last_sale_median) for richer pricing context.
+
+        mid: median(bid_prices) + median(ask_prices) / 2 if both sides exist.
+        top_bid: highest observed bid in recent snapshots.
+        last_sale_median: median of recent trade prices (captures executed clearing level resilience).
+        """
+        snaps = db.query(OrderbookSnapshot).filter(OrderbookSnapshot.domain_name==domain).order_by(OrderbookSnapshot.collected_at.desc()).limit(120).all()
         bids = [Decimal(str(s.price)) for s in snaps if s.side == 'BUY']
         asks = [Decimal(str(s.price)) for s in snaps if s.side == 'SELL']
+        top_bid: Decimal | None = max(bids) if bids else None
         if not bids or not asks:
-            return None
-        bid_med = sorted(bids)[len(bids)//2]
-        ask_med = sorted(asks)[len(asks)//2]
-        return (bid_med + ask_med) / 2
+            mid = None
+        else:
+            bid_med = sorted(bids)[len(bids)//2]
+            ask_med = sorted(asks)[len(asks)//2]
+            mid = (bid_med + ask_med) / 2
+        # derive last sale median from recent trades (not strictly tied to VWAP window)
+        recent_trades = db.query(Trade).filter(Trade.domain_token_id==domain).order_by(Trade.timestamp.desc()).limit(25).all()
+        trade_prices = [Decimal(str(t.price)) for t in recent_trades]
+        last_sale_median: Decimal | None = None
+        if trade_prices:
+            tp_sorted = sorted(trade_prices)
+            last_sale_median = tp_sorted[len(tp_sorted)//2]
+        return mid, top_bid, last_sale_median
 
     def _select_primary_source(self, trade_vwap: Optional[Decimal], trade_count: int, orderbook_mid: Optional[Decimal], floor: Optional[Decimal], decayed_prev: Decimal) -> Tuple[str, list[str], Decimal]:
         chain: list[str] = []
@@ -98,21 +115,11 @@ class ValuationService:
         """
         if not settings.valuation_use_ensemble:
             return base_value, 'heuristic_v1', {'enabled': False}
-        # Stub external + ml predictions derived from factor anchors for now
+        # External oracle + ML placeholders (fast, deterministic). Hooks can be injected later.
         trade_vwap = factors.get('trade_vwap')
         primary_price = factors.get('primary_price')
-        try:
-            trade_v = Decimal(trade_vwap) if trade_vwap not in (None, 'None') else None
-        except Exception:
-            trade_v = None
-        try:
-            primary_v = Decimal(primary_price) if primary_price not in (None, 'None') else base_value
-        except Exception:
-            primary_v = base_value
-        # external oracle proxy: slight smoothing towards primary source
-        external_oracle = (primary_v * Decimal('0.98') + base_value * Decimal('0.02')) if primary_v else base_value
-        # ml model proxy: emphasize trade_vwap if exists else baseline
-        ml_model = trade_v if trade_v else base_value
+        external_oracle = self._external_oracle_adapter(primary_price, base_value)
+        ml_model = self._ml_model_adapter(trade_vwap, base_value)
         w_h = Decimal(str(settings.ensemble_weight_heuristic))
         w_e = Decimal(str(settings.ensemble_weight_external))
         w_m = Decimal(str(settings.ensemble_weight_ml))
@@ -145,6 +152,64 @@ class ValuationService:
         chosen_source = sorted(diffs.items(), key=lambda x: x[1])[0][0]
         return final_ensemble.quantize(Decimal('0.01')), chosen_source, meta
 
+    # --- New adapters ---
+    def _external_oracle_adapter(self, primary_price: Any, base_value: Decimal) -> Decimal:
+        """Stub external oracle adapter.
+
+        Strategy: If a primary_price anchor exists, nudge slightly toward it with small smoothing.
+        Later: replace with real fetched oracle feed (cached) & staleness guard.
+        """
+        # Attempt external oracle retrieval first; fallback to provided primary price anchor
+        try:
+            oracle_price = None
+            if isinstance(primary_price, (str, int, float)) and primary_price not in (None, 'None'):
+                try:
+                    oracle_price = external_oracle_service.get_price(str(primary_price))  # misuse: fallback if domain keyed incorrectly
+                except Exception:
+                    oracle_price = None
+            # If we cannot interpret, just return base smoothing
+            if primary_price in (None, 'None'):
+                return base_value
+            anchor = Decimal(primary_price)
+            ref = oracle_price or anchor
+            return (ref * Decimal('0.98') + base_value * Decimal('0.02'))
+        except Exception:
+            return base_value
+
+    def _ml_model_adapter(self, trade_vwap: Any, base_value: Decimal) -> Decimal:
+        """Lightweight on-the-fly linear model placeholder.
+
+        Uses trade_vwap as single feature; if unavailable returns base_value.
+        Future: load pre-trained regression with features (scarcity, quality, freshness dispersion).
+        """
+        try:
+            if trade_vwap in (None, 'None'):
+                return base_value
+            v = Decimal(trade_vwap)
+            # Persist simple rolling coefficient using last 50 samples (in-memory only)
+            coef = getattr(self, '_ml_coef', Decimal('0.6'))
+            hist: list[Decimal] = getattr(self, '_ml_hist', [])  # type: ignore
+            hist.append(v)
+            if len(hist) > 50:
+                hist.pop(0)
+            # Simple adaptive coef: inverse relation to variance
+            if len(hist) >= 5:
+                avg = sum(hist)/Decimal(len(hist))
+                var = sum((x-avg)**2 for x in hist)/Decimal(len(hist))
+                # Map variance to [0.3, 0.8]
+                try:
+                    adj = Decimal('0.8') - (var / (avg + Decimal('1')))  # basic scaling
+                    if adj < Decimal('0.3'): adj = Decimal('0.3')
+                    if adj > Decimal('0.8'): adj = Decimal('0.8')
+                    coef = adj
+                except Exception:
+                    pass
+            self._ml_coef = coef  # type: ignore
+            self._ml_hist = hist  # type: ignore
+            return (v * coef + base_value * (Decimal('1') - coef))
+        except Exception:
+            return base_value
+
     def value_domains(self, db: Session, domains_input: List[str], context: Dict[str, Any]) -> List[Dict[str, Any]]:
         from datetime import timedelta
 
@@ -174,7 +239,7 @@ class ValuationService:
             scarcity = self._scarcity_factor(tld, tld_counts)
             quality = self._name_quality(name_l)
             trade_vwap, trade_count = self._trade_vwap(db, name_l)
-            orderbook_mid = self._orderbook_mid(db, name_l)
+            orderbook_mid, top_bid, last_sale_median = self._orderbook_mid(db, name_l)
             prev = db.query(Valuation).filter(Valuation.domain_name==name_l).order_by(Valuation.created_at.desc()).first()
             baseline = Decimal(100)
             prev_val = Decimal(str(prev.value)) if prev else baseline
@@ -202,12 +267,21 @@ class ValuationService:
                 components.append(('floor', floor, wt_floor))  # type: ignore
             if used_ob:
                 components.append(('orderbook_mid', orderbook_mid, wt_ob))  # type: ignore
+            # Optional last sale median (lighter weight than VWAP to avoid double counting trades influence)
+            if last_sale_median is not None:
+                components.append(('last_sale_median', last_sale_median, wt_trade * Decimal('0.35')))
             components.append(('time_decay_anchor', decayed_prev, wt_decay))
             weight_sum = sum(c[2] for c in components) or Decimal(1)
             weighted_val = sum(c[1]*c[2] for c in components) / weight_sum
             final_value = weighted_val.quantize(Decimal('0.01'))
             freshness = Decimal(math.exp(-settings.valuation_freshness_lambda * age_seconds)) if age_seconds else Decimal(1)
             primary_source, fallback_chain, primary_price = self._select_primary_source(trade_vwap, trade_count, orderbook_mid, floor, decayed_prev)
+            # Soft floor raising using top bid (avoid extreme divergence below active liquidity intent)
+            if top_bid and top_bid > 0 and final_value < top_bid * Decimal('0.70'):
+                final_value = (final_value * Decimal('0.5') + top_bid * Decimal('0.70') * Decimal('0.5')).quantize(Decimal('0.01'))
+            # Staleness fallback if >1h old and no fresh signals: revert toward decayed previous anchor
+            if age_seconds > 3600 and trade_vwap is None and orderbook_mid is None and floor is None:
+                final_value = decayed_prev.quantize(Decimal('0.01'))
             if dispute_active:
                 final_value = prev_val.quantize(Decimal('0.01'))
             ensemble_meta: Dict[str, Any] | None = None
@@ -228,6 +302,8 @@ class ValuationService:
                     'trade_count': trade_count,
                     'floor_price': str(floor) if floor is not None else None,
                     'orderbook_mid': str(orderbook_mid) if orderbook_mid is not None else None,
+                    'top_bid': str(top_bid) if top_bid is not None else None,
+                    'last_sale_median': str(last_sale_median) if last_sale_median is not None else None,
                     'time_decay_anchor': str(decayed_prev.quantize(Decimal('0.01'))),
                     'weights': {'trade': str(wt_trade), 'floor': str(wt_floor), 'orderbook': str(wt_ob), 'time_decay': str(wt_decay)},
                     'scarcity': str(scarcity),

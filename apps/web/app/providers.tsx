@@ -8,6 +8,7 @@ import { mainnet, sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 import type { ReactNode } from "react";
 import { getCurrentNetwork } from "../lib/config";
+import { DomaOrderbookProvider } from './providers/DomaOrderbookProvider';
 
 // Define Doma testnet chain
 const domaTestnet = {
@@ -54,7 +55,9 @@ export function Providers({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <AuthProvider>
-            {children}
+            <DomaOrderbookProvider>
+              {children}
+            </DomaOrderbookProvider>
           </AuthProvider>
         </ToastProvider>
       </QueryClientProvider>

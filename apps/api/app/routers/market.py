@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from decimal import Decimal
 from typing import Optional
 from app.database import get_db
-from app.models.database import Listing, Offer, Domain, Trade, Participant, Competition, TradeRiskFlag, CompetitionReward, CompetitionEpoch, ParticipantHolding
+from app.models.database import Listing, Offer, Domain, Trade, Participant, Competition, TradeRiskFlag, CompetitionReward, CompetitionEpoch, ParticipantHolding, DomainWhitelist
 from app.deps.auth import get_current_user
 from app.config import settings
 from app.services.reconciliation_service import reconciliation_service
@@ -14,8 +14,43 @@ from app.broadcast import get_sync_broadcast
 from app.services.metrics_service import invalidate_leaderboard_cache
 from app.services.abuse_guard import abuse_guard
 from fastapi import Request
+from app.services.governance_service import governance_service
 
 router = APIRouter()
+
+# --- Whitelist Management (custody control extension) ---
+@router.post('/market/whitelist/add')
+def add_to_whitelist(domain: str, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # DomainWhitelist already imported top-level
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail='admin only')
+    dom = domain.lower()
+    row = db.query(DomainWhitelist).filter(DomainWhitelist.domain_name==dom).first()
+    if not row:
+        row = DomainWhitelist(domain_name=dom, active=True)
+        db.add(row)
+    else:
+        row.active = True
+    db.commit()
+    return {'domain': dom, 'active': True}
+
+@router.post('/market/whitelist/remove')
+def remove_from_whitelist(domain: str, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # DomainWhitelist already imported top-level
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail='admin only')
+    dom = domain.lower()
+    row = db.query(DomainWhitelist).filter(DomainWhitelist.domain_name==dom).first()
+    if row:
+        row.active = False
+        db.commit()
+    return {'domain': dom, 'active': False}
+
+@router.get('/market/whitelist')
+def list_whitelist(db: Session = Depends(get_db)):
+    # DomainWhitelist already imported top-level
+    rows = db.query(DomainWhitelist).filter(DomainWhitelist.active==True).all()  # noqa: E712
+    return {'active': [r.domain_name for r in rows]}
 
 def _post_trade_hooks(db: Session, trade: Trade, domain_name: str):
     """Apply risk heuristics and update competition reward points.
@@ -247,6 +282,10 @@ def create_listing(
         price_dec = Decimal(price)
     except Exception:
         raise HTTPException(status_code=400, detail='Invalid price')
+    # Governance risk cap: trade_max_notional_per_tx
+    max_notional = governance_service.get_risk_param(db, 'trade_max_notional_per_tx', 100000)
+    if price_dec > Decimal(max_notional):
+        raise HTTPException(status_code=400, detail='price exceeds max_notional')
     from app.config import settings
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.listing_ttl_days)
     listing = Listing(domain_name=domain.lower(), seller_wallet=user.wallet_address.lower(), price=price_dec, tx_hash=tx_hash, external_order_id=external_order_id, expires_at=expires_at)
@@ -291,6 +330,45 @@ def record_buy(
                 trade_price = D(price) if price else lst.price
             except Exception:
                 trade_price = lst.price
+            # Governance risk cap enforcement (buy side)
+            max_notional = governance_service.get_risk_param(db, 'trade_max_notional_per_tx', 100000)
+            if Decimal(trade_price) > Decimal(max_notional):  # type: ignore
+                raise HTTPException(status_code=400, detail='trade exceeds max_notional')
+            # Portfolio concentration enforcement
+            try:
+                conc_cap_bps = governance_service.get_risk_param(db, 'portfolio_max_concentration_bps', 7000)
+                # For each participant (buyer) we approximate portfolio after trade
+                from app.models.database import ParticipantHolding, Domain as Dm
+                buyer_parts = (
+                    db.query(Participant)
+                    .join(Competition, Competition.id == Participant.competition_id)
+                    .join(UserModel, UserModel.id == Participant.user_id)
+                    .filter(UserModel.wallet_address == user.wallet_address.lower())
+                    .all()
+                )
+                for bp in buyer_parts:
+                    # Sum current estimated values
+                    holdings = db.query(ParticipantHolding).filter(ParticipantHolding.participant_id==bp.id).all()
+                    total_val = Decimal(0)
+                    domain_current_val = Decimal(0)
+                    for h in holdings:
+                        dom_row = db.query(Domain).filter(Domain.name==h.domain_name).first()
+                        if dom_row and dom_row.last_estimated_value is not None:
+                            v = Decimal(dom_row.last_estimated_value) * Decimal(h.quantity or 0)
+                            total_val += v
+                            if h.domain_name == name_l:
+                                domain_current_val += v
+                    # Add prospective trade value
+                    total_after = total_val + Decimal(trade_price)
+                    domain_after = domain_current_val + Decimal(trade_price)
+                    if total_after > 0:
+                        share_bps = (domain_after / total_after) * Decimal(10000)
+                        if share_bps > Decimal(conc_cap_bps):
+                            raise HTTPException(status_code=400, detail='concentration cap exceeded')
+            except HTTPException:
+                raise
+            except Exception:
+                pass
             now_ts = datetime.now(timezone.utc)
             participants = (
                 db.query(Participant)
