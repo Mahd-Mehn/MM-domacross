@@ -97,15 +97,60 @@ async def latest_valuations(domain: str, lookback_minutes: int = 1440, db: Sessi
 
 @router.get('/valuation/factors')
 async def valuation_factors(domain: str, db: Session = Depends(get_db)):
-    # Return latest valuation plus raw component breakdown (already stored in factors) + override if any
+    """Transparency stub (Phase 9): enrich valuation factors with heuristic confidence fields.
+
+    This adds forward-compatible keys expected by the frontend hook `useValuationTransparency`:
+    - value, model_version
+    - freshness_score (0..1) based on age vs 1h target
+    - decay_factor (static placeholder until dynamic decay model lands)
+    - confidence_score (heuristic: freshness * (1 - decay_factor))
+    - chosen_source (placeholder, later set by ensemble selector)
+    - components (flattened factor weights if present in stored factors JSON)
+
+    Original response shape (`latest`, `override`) is preserved for backward compatibility.
+    """
     val = db.query(Valuation).filter(Valuation.domain_name==domain.lower()).order_by(Valuation.created_at.desc()).first()
     override = db.query(DomainValuationOverride).filter(DomainValuationOverride.domain_name==domain.lower()).first()
-    return {
+    value = None
+    model_version = None
+    factors_blob: Dict[str, Any] | None = None
+    age_seconds = None
+    if val:
+        try:
+            value = float(val.value)  # type: ignore
+        except Exception:
+            value = None
+        model_version = val.model_version
+        factors_blob = val.factors if isinstance(val.factors, dict) else None
+        if val.created_at:
+            age_seconds = (datetime.now(timezone.utc) - val.created_at).total_seconds()
+    # Freshness: 1.0 when < 2m old, linear decay to 0 at 60m
+    if age_seconds is None:
+        freshness = 0.0
+    else:
+        freshness = 1.0 if age_seconds <= 120 else max(0.0, 1.0 - (age_seconds - 120) / (60*60 - 120))
+    decay_factor = 0.15  # placeholder constant until dynamic decay introduced
+    confidence_score = round(max(0.0, min(1.0, freshness * (1 - decay_factor))), 4)
+    # chosen_source: prioritize override, else heuristic_v1
+    chosen_source = 'override' if override else 'heuristic_v1'
+    # Extract simple component weights if present
+    components: Dict[str, Any] | None = None
+    if factors_blob and isinstance(factors_blob, dict):
+        # pick out numeric keys / known factor contributions
+        components = {k: v for k, v in factors_blob.items() if isinstance(v, (int, float)) and len(k) < 40}
+    response = {
         'domain': domain.lower(),
-        'latest': {
+        'value': value,
+        'model_version': model_version,
+        'freshness_score': round(freshness, 4),
+        'decay_factor': decay_factor,
+        'confidence_score': confidence_score,
+        'chosen_source': chosen_source,
+        'components': components,
+        'latest': {  # legacy nested structure
             'value': str(val.value) if val else None,
-            'model_version': val.model_version if val else None,
-            'factors': val.factors if val else None,
+            'model_version': model_version,
+            'factors': factors_blob,
         },
         'override': {
             'value': str(override.override_value),
@@ -113,6 +158,7 @@ async def valuation_factors(domain: str, db: Session = Depends(get_db)):
             'expires_at': override.expires_at.isoformat() if override and override.expires_at else None
         } if override else None
     }
+    return response
 
 class ValuationOverrideRequest(BaseModel):
     domain: str

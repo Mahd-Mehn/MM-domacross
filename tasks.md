@@ -1,6 +1,6 @@
 # Project Task Tracker
 
-Last Updated: 2025-09-04
+Last Updated: 2025-09-06 (Phase 9 wrap)
 
 Legend:
 
@@ -36,10 +36,10 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 - [~] Dispute / Override Mechanism (admin override + disputes table + voting + valuation clamp on threshold; needs quorum resolution policy & notifications)
 
 - [ ] Valuation Ensemble (high priority)
-	- [ ] Integrate orderbook pricing + oracle price feeds as primary/fallback inputs
-	- [ ] Add lightweight ML/heuristic model producing a confidence score per valuation
-	- [ ] Emit confidence_score + chosen_source in factor transparency endpoint
-	- [ ] Add unit tests & sample model outputs for judge reproducibility
+  - [ ] Integrate orderbook pricing + oracle price feeds as primary/fallback inputs
+  - [ ] Add lightweight ML/heuristic model producing a confidence score per valuation
+  - [X] Emit confidence_score + chosen_source in factor transparency endpoint (stub heuristic implemented 2025-09-06)
+  - [ ] Add unit tests & sample model outputs for judge reproducibility
 
 ## 3. ETF Economics & Yield Narrative
 
@@ -52,17 +52,14 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 ## 4. Settlement & Provenance
 
 - [X] On-Chain Event Ingestion Loop (block height sync + verification semantics; marketplace order + trade ingestion incl. persistent order cache & attribution)
-
 - [X] Settlement Proof Verification (tx hash semantic cross-check & gating before redemption finalize, gas/log/topic checks)
-
 - [X] State Audit Export (streaming JSONL endpoints, pagination, integrity checks, docs; resume tests deferred but core complete)
-
 - [X] Merkle Root Snapshot Generation (periodic scheduler + endpoint + proofs + signing)
-
 - [X] On-chain Competition Settlement (high priority)
-	- [X] Smart contract for competition finalization + USDC prize payouts (CompetitionSettlement.sol + events)
-	- [X] Backend flow to submit settlement tx + verify on-chain proof before marking rewards distributed (submit & verify endpoints + semantic log validation)
-	- [X] End-to-end test (localnet) and demo script (Hardhat test + settle-competition.ts printing tx hash for verification)
+
+  - [X] Smart contract for competition finalization + USDC prize payouts (CompetitionSettlement.sol + events)
+  - [X] Backend flow to submit settlement tx + verify on-chain proof before marking rewards distributed (submit & verify endpoints + semantic log validation)
+  - [X] End-to-end test (localnet) and demo script (Hardhat test + settle-competition.ts printing tx hash for verification)
 
 ## 5. Incentives & Liquidity Mining
 
@@ -78,6 +75,7 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 - [X] Rapid Flip Detection (heuristic + test)
 - [X] Rate Limiting (per wallet + per IP token bucket implemented in `abuse_guard`, tested)
 - [X] Circuit Breaker (NAV move trigger implemented, Redis persistence, enforced on trading endpoints, tested)
+
 - [~] Replay / Idempotency Guards for external settlement intents (redemption + competition settlement submit idempotent; issuance & other intents pending)
 
 - [X] Risk Flag Event Emission (schema documented; websocket contract test passes)
@@ -87,35 +85,33 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 - [X] Domain / Asset Whitelist Enforcement in trade & listing flows (ETF create + whitelist CRUD endpoints)
 - [X] Governance Config Endpoint (list/upsert keys)
 - [X] Admin Action Audit Log (admin_action_audit table + /policy/audit)
+- [X] Offchain Whitelisting & KYC (prize distribution)
 
-- [~] Offchain Whitelisting & KYC (prize distribution)
-	- [X] Offchain KYC workflow endpoints (submit, approve, reject) + user.kyc_verified flag
-	- [ ] Admin UI for whitelist, revoke, and manual payout exceptions
-	- [X] Audit events emitted for KYC/whitelist changes (AdminActionAudit entries)
+  - [X] Offchain KYC workflow endpoints (submit, approve, reject) + user.kyc_verified flag
+  - [X] Admin UI for whitelist, revoke, and manual payout exceptions (whitelist page now includes deactivate/reactivate, KYC revoke, manual reward adjust form)
+  - [X] Audit events emitted for KYC/whitelist changes (AdminActionAudit entries)
 
 ## 8. Analytics & Time Series
 
-- [~] Portfolio Value History (basic endpoint exists)
-
-- [ ] NAV History Endpoint (granular + aggregation windows)
-- [ ] Performance Chart Aggregations (1h / 24h / 7d deltas precomputed)
-- [ ] Per-Participant Risk Profile (volatility, drawdown, concentration)
-- [ ] Slippage & Execution Quality Metrics (expected vs achieved fill)
+- [X] Portfolio Value History (basic endpoint exists)
+- [X] NAV History Endpoint (granular + aggregation windows)
+- [X] Performance Chart Aggregations (1h / 24h / 7d deltas precomputed)
+- [X] Per-Participant Risk Profile (volatility, drawdown, concentration)
+- [X] Slippage & Execution Quality Metrics (expected vs achieved fill heuristic)
 
 ## 9. Real-Time & Frontend Integration
 
-- [~] WebSocket Event Layer (basic events: trade, nav_update, leaderboard_delta, epoch_distributed, risk_flag)
+- [X] WebSocket Event Layer (basic events: trade, nav_update, leaderboard_delta, epoch_distributed, risk_flag) (See ADR-009)
+- [X] Client Subscription Granularity (namespaces / per-competition filtering via `events=` & `competitions=` params) (ADR-009)
+- [X] Frontend Live Leaderboard Auto-Update (consume `leaderboard_delta` deltas; session aggregate) (ADR-009)
+- [X] Frontend Valuation Transparency Panel (factor breakdown UI implemented 2025-09-06)
+- [X] Optimistic Trade / Valuation Updates with Reconciliation (provisional fills, orphan eviction + toast) (ADR-009)
+- [X] Live-Ops UX & Demo Mode (high priority)
 
-- [ ] Client Subscription Granularity (namespaces / per-competition filtering)
-- [ ] Frontend Live Leaderboard Auto-Update (consume deltas and reconcile ranks)
-- [ ] Frontend Valuation Transparency Panel (factor breakdown UI)
-- [ ] Optimistic Trade / Valuation Updates with Reconciliation
-
-- [ ] Live-Ops UX & Demo Mode (high priority)
-	- [ ] Real-time leaderboard with replay capability and progressive loads
-	- [ ] Observable demo mode: pre-seeded testnet data + deterministic replay script for judges
-	- [ ] Visualize fees, NAV, and ETF create/redemption flows in admin/demo UI
-	- [ ] Frontend hooks to pull confidence_score and show valuation confidence bands
+  - [X] Real-time leaderboard with replay capability and progressive loads (session scope + replay controls) (ADR-009)
+  - [X] Observable demo mode: expanded manifest + replay panel (full seeded dataset added 2025-09-06)
+  - [X] Visualize fees, NAV, and ETF create/redemption flows in admin/demo UI (EtfNavFlowCharts: NAV line + flow bars)
+  - [X] Frontend hooks to pull confidence_score and show valuation confidence bands (useValuationTransparency + ValuationPanel update)
 
 ## 10. Documentation & Narrative
 
@@ -134,12 +130,12 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 - [ ] Background Scheduler (cron-like for NAV recompute, fee accrual, snapshots)
 - [ ] Structured Logging Format & Correlation IDs
 - [ ] Config Validation on Startup (fail fast)
-
 - [ ] Hardening & Observability (high priority)
-	- [ ] Automated stress test harness to simulate high tx volumes (trades + joins) and assert latency/throughput
-	- [ ] Prometheus dashboards + alert rules for ingestion/backfill failure, mapping_size regressions, and replay backlog
-	- [ ] SLO docs and runbook for incident response (ingestion/backfill/finalization failures)
-	- [ ] Smoke tests for settlement flow and replay after service restart
+
+  - [ ] Automated stress test harness to simulate high tx volumes (trades + joins) and assert latency/throughput
+  - [ ] Prometheus dashboards + alert rules for ingestion/backfill failure, mapping_size regressions, and replay backlog
+  - [ ] SLO docs and runbook for incident response (ingestion/backfill/finalization failures)
+  - [ ] Smoke tests for settlement flow and replay after service restart
 
 ## 12. Testing & Quality
 
@@ -172,11 +168,11 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 - [ ] Makefile or Task Runner (test, format, run, seed)
 - [ ] Local Dev Docker Compose (API + DB + Redis + worker) hardened
 - [ ] Pre-commit Hooks (imports, formatting, basic lint)
-
 - [ ] Marketplace / SDK Purchase Integration
-	- [ ] Integrate `@doma-protocol/orderbook-sdk` purchase/listing flows into frontend so users can buy domains directly (demo/testnet)
-	- [ ] Expose a simple "Buy" action on domain cards that uses Viem/Wagmi -> SDK flow with progress callbacks
-	- [ ] End-to-end test and demo script showing UI -> SDK -> on-chain purchase -> backend ingestion
+
+  - [ ] Integrate `@doma-protocol/orderbook-sdk` purchase/listing flows into frontend so users can buy domains directly (demo/testnet)
+  - [ ] Expose a simple "Buy" action on domain cards that uses Viem/Wagmi -> SDK flow with progress callbacks
+  - [ ] End-to-end test and demo script showing UI -> SDK -> on-chain purchase -> backend ingestion
 
 ---
 
@@ -185,35 +181,36 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 Goal: turn the platform from demo-ready into a judges-proof submission for Track 2. Each item should be either [X] Done or [ ] Verified in live testnet demo with artifacts.
 
 - [ ] Demo Script & Video
-	- [ ] Short walkthrough video (3-5m) demonstrating: create competition → join → mint USDC (dev) → trade → leaderboard update → settlement payout
-	- [ ] Written demo script with exact wallet addresses and timings for judges
 
+  - [ ] Short walkthrough video (3-5m) demonstrating: create competition → join → mint USDC (dev) → trade → leaderboard update → settlement payout
+  - [ ] Written demo script with exact wallet addresses and timings for judges
 - [ ] Seeded Testnet Dataset
-	- [ ] Pre-seed competition + wallets + trades so judges can hit "play" on demo mode
-	- [ ] Provide deterministic replay tooling and manifest (JSONL of events)
 
+  - [ ] Pre-seed competition + wallets + trades so judges can hit "play" on demo mode
+  - [ ] Provide deterministic replay tooling and manifest (JSONL of events)
 - [ ] Valuation Ensemble Evidence
-	- [ ] Show sample valuation outputs with confidence band and chosen_source annotated in factor transparency endpoint
-	- [ ] Unit tests and a short tech note describing ensemble weights and fallback chain
 
+  - [ ] Show sample valuation outputs with confidence band and chosen_source annotated in factor transparency endpoint
+  - [ ] Unit tests and a short tech note describing ensemble weights and fallback chain
 - [ ] On-chain Settlement Proof
-	- [ ] Smart contract deployed on testnet with verified source and a tx demonstrating USDC payout
-	- [ ] Backend shows proof of on-chain settlement (tx hash cross-check, merkle inclusion if applicable)
 
+  - [ ] Smart contract deployed on testnet with verified source and a tx demonstrating USDC payout
+  - [ ] Backend shows proof of on-chain settlement (tx hash cross-check, merkle inclusion if applicable)
 - [ ] Observability Artifacts
-	- [ ] Prometheus metrics screenshot (ingestion rate, mapping_size, backfill success/failures)
-	- [ ] Stress test report (N trades, p95 latency, errors) attached to the submission
 
+  - [ ] Prometheus metrics screenshot (ingestion rate, mapping_size, backfill success/failures)
+  - [ ] Stress test report (N trades, p95 latency, errors) attached to the submission
 - [ ] Fraud & Governance Controls
-	- [ ] Offchain whitelist/KYC demo for prize distribution with admin approval flow
-	- [ ] Admin commands to replay missing events and reconcile leaderboards
 
+  - [ ] Offchain whitelist/KYC demo for prize distribution with admin approval flow
+  - [ ] Admin commands to replay missing events and reconcile leaderboards
 - [ ] Marketplace Purchase Flow
-	- [ ] Live demo of purchasing a domain using the integrated SDK flow (progress callbacks visible)
 
+  - [ ] Live demo of purchasing a domain using the integrated SDK flow (progress callbacks visible)
 - [ ] Submission Artifacts
-	- [ ] README appendix with commands to reproduce demo locally + docker-compose for judges
-	- [ ] Short troubleshooting runbook for judges (how to restart services, replay events, re-run settlement)
+
+  - [ ] README appendix with commands to reproduce demo locally + docker-compose for judges
+  - [ ] Short troubleshooting runbook for judges (how to restart services, replay events, re-run settlement)
 
 Each item above should be linked inside the repo (or included in the submission bundle) and marked Done/Verified before final submission.
 
@@ -234,8 +231,10 @@ Each item above should be linked inside the repo (or included in the submission 
 - 2025-09-04: Added basic epoch distribution endpoint & WebSocket epoch_distributed event.
 - 2025-09-04: Implemented periodic Merkle snapshot scheduler + stub chain ingestion audit events; unified fee event proofs endpoint & frontend integration with optimistic events.
 - 2025-09-04: Added Settlement Provenance & Verification README section (Merkle proofs, integrity hash chain, streaming export docs, redemption semantic validation env vars).
- - 2025-09-05: Completed On-chain Competition Settlement (contract, payout events, backend submit/verify with semantic receipt checks, Hardhat test, demo script, frontend admin UI hooks).
+- 2025-09-05: Completed On-chain Competition Settlement (contract, payout events, backend submit/verify with semantic receipt checks, Hardhat test, demo script, frontend admin UI hooks).
 - 2025-09-06: Phase 6 core anti-abuse scaffolding: rate limiting, circuit breaker, extended risk flag heuristics (wash/self-cross/circular/rapid flip), redemption intent idempotency endpoint, initial abuse tests (rate limit, circuit breaker, idempotent redemption). Further tests & docs pending.
+- 2025-09-06: Completed Offchain Whitelisting & KYC admin UI (reactivation, KYC revoke, manual reward adjust) closing remaining Phase 7 UI tasks.
+- 2025-09-06: Added full demo dataset seeding script (`seed_demo_dataset.py`) + full replay manifest (`demo-manifest.full.jsonl`) marking observable demo mode complete.
 
 ---
 

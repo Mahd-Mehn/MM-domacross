@@ -9,6 +9,13 @@ import { Metric } from "../../components/ui/Metric";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import Link from 'next/link';
+import { ListingCreationCard } from '../../components/ListingCreationCard';
+import { ActivityFeed } from '../../components/ActivityFeed';
+import { ValuationPanel } from '../../components/ValuationPanel';
+import { ValuationTransparencyPanel } from '../../components/ValuationTransparencyPanel';
+import { LiveOpsPanel } from '../../components/LiveOpsPanel';
+import { LeaderboardPanel } from '../../components/LeaderboardPanel';
+import { ReplayControls } from '../../components/ReplayControls';
 
 interface UserPortfolio {
   total_value: string;
@@ -65,12 +72,14 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+  <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
   <Metric label="Portfolio Value" value={parseFloat(mockPortfolio.total_value)} unit=" ETH" delta={12} />
         <Metric label="Active Competitions" value={mockPortfolio.competitions_participating} />
         <Metric label="Domains Owned" value={mockPortfolio.domains_owned} />
         <Metric label="Win Rate" value="--" />
       </section>
+
+  <ListingCreationCard onCreated={()=>{/* optional refresh hooks later */}} />
 
       <section className="grid lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-8">
@@ -104,10 +113,47 @@ export default function DashboardPage() {
           <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
             <CardHeader>
               <CardTitle>Recent Activity</CardTitle>
-              <CardDescription>Latest portfolio executions and domain events.</CardDescription>
+              <CardDescription>Live event stream (last 25).</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-slate-500 dark:text-slate-500 text-sm py-6 text-center transition-colors">No recent activity yet. Execute trades to populate history.</div>
+              <div className="mb-4"><ReplayControls /></div>
+              <ActivityFeed />
+            </CardContent>
+          </Card>
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <CardTitle>Live Valuations</CardTitle>
+              <CardDescription>Latest model updates & deltas.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ValuationPanel />
+            </CardContent>
+          </Card>
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <CardTitle>Valuation Transparency</CardTitle>
+              <CardDescription>Factors, confidence & bands.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ValuationTransparencyPanel />
+            </CardContent>
+          </Card>
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <CardTitle>Leaderboard (Live)</CardTitle>
+              <CardDescription>Top addresses by score (session deltas).</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LeaderboardPanel />
+            </CardContent>
+          </Card>
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <CardTitle>Live Ops & Demo</CardTitle>
+              <CardDescription>Replay & operational telemetry.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LiveOpsPanel />
             </CardContent>
           </Card>
         </div>

@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 import "./globals.css";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { MobileNav } from "../components/MobileNav";
+import { AdminNav } from "../components/AdminNav";
 
 // Client-only wallet connect to avoid SSR markup divergence
 const ConnectWallet = dynamic(()=> import('../components/ConnectWallet'), { ssr: false });
@@ -31,6 +32,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <Link href="/etfs" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">ETFs</Link>
                   <Link href="/strategies" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Strategies</Link>
                   <Link href="/settings" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Settings</Link>
+                  <Link href="/competitions/1/claim" className="px-3 py-2 rounded-md hover:bg-white/5 transition-colors">Claim</Link>
+                  <AdminNav />
                 </nav>
                 <div className="ml-auto flex items-center gap-3">
                   <MobileNav />

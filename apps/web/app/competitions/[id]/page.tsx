@@ -10,6 +10,7 @@ import TradingInterface from "../../../components/TradingInterface";
 import DomainBasket from "../../../components/DomainBasket";
 import USDCDeposit from "../../../components/USDCDeposit";
 import { CompetitionCharts } from "../../../components/CompetitionCharts";
+import { RiskSlippageCharts } from "../../../components/RiskSlippageCharts";
 import { useSubmitCompetitionSettlement, useVerifyCompetitionSettlement } from "../../../lib/hooks/useMarketplaceActions";
 import { useAuditEvents } from "../../../lib/hooks/useAuditEvents";
 import { useAuth } from "../../../components/AuthProvider";
@@ -185,8 +186,9 @@ export default function CompetitionDetailPage() {
         ) : (
           <p className="text-slate-500 text-sm">No participants yet.</p>
         )}
-        <div className="pt-8">
+        <div className="pt-8 space-y-14">
           <CompetitionCharts leaderboard={competition.leaderboard} />
+          <RiskSlippageCharts leaderboard={competition.leaderboard} />
         </div>
       </section>
 

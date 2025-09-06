@@ -254,8 +254,12 @@ class CompetitionReward(Base):
     sharpe_like = Column(Numeric(24,8), nullable=True)
     turnover_ratio = Column(Numeric(24,8), nullable=True)
     concentration_index = Column(Numeric(24,8), nullable=True)
+    # raw_reward_amount captures the theoretical reward before KYC gating so that
+    # a user who becomes verified later can retroactively claim it.
+    raw_reward_amount = Column(Numeric(24,8), nullable=True)
     reward_amount = Column(Numeric(24,8), nullable=True)
     distributed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (UniqueConstraint('epoch_id','user_id', name='uq_epoch_user_reward'),)
 

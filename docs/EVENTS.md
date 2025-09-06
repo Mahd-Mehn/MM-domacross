@@ -219,6 +219,18 @@ Server heartbeat for liveness. Client should respond with `pong` (echo or simple
 ### system_notice (planned)
 Operational announcements (maintenance windows, model upgrades, competition resets).
 
+### kyc_status (planned)
+User KYC status change broadcast (after admin approval/rejection).
+```json
+{ "type": "kyc_status", "user_id": 7, "status": "APPROVED", "ts": "2025-09-06T12:00:00Z" }
+```
+
+### policy_change (planned)
+Admin policy mutation (whitelist, governance config). Minimizes polling for admin panels.
+```json
+{ "type": "policy_change", "action": "WHITELIST_ADD", "target": "example.eth", "admin_user_id": 1, "ts": "2025-09-06T12:01:00Z" }
+```
+
 ## Subscription Semantics (Detailed)
 - Initial query parameter sets starting filter.  
 - SUB without prior UNSUB replaces the entire filter set (idempotent).  

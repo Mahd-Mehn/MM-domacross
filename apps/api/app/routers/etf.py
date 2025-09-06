@@ -440,7 +440,42 @@ def get_apy(etf_id: int, lookback_days: int = 30, db: Session = Depends(get_db))
     return { 'etf_id': etf_id, 'apy': str(apy) if apy is not None else None, 'lookback_days': lookback_days }
 
 @router.get('/etfs/{etf_id}/nav/history')
-def nav_history(etf_id: int, limit: int = 200, db: Session = Depends(get_db)):
-    from app.models.database import DomainETFNavHistory as Hist
-    rows = db.query(Hist).filter(Hist.etf_id==etf_id).order_by(Hist.snapshot_time.desc()).limit(min(limit, 1000)).all()
-    return [ { 'snapshot_time': r.snapshot_time.isoformat(), 'nav_per_share': str(r.nav_per_share) } for r in reversed(rows) ]
+def nav_history(etf_id: int, limit: int = 500, interval: str | None = None, start: datetime | None = None, end: datetime | None = None, db: Session = Depends(get_db)):
+    """Return raw or aggregated NAV per share history for an ETF.
+
+    Parameters:
+      - limit: max raw points (ignored if start/end provided and interval aggregation used)
+      - interval: one of None/raw, '1m','5m','1h','1d' for down-sampled aggregation buckets
+      - start/end: optional explicit window (UTC). If only start provided, end=now.
+    """
+    from app.models.database import DomainETFNavHistory as Hist  # type: ignore
+    q = db.query(Hist).filter(Hist.etf_id==etf_id)
+    if start:
+        q = q.filter(Hist.snapshot_time >= start)
+    if end:
+        q = q.filter(Hist.snapshot_time <= end)
+    else:
+        if start is None:  # only enforce limit when no explicit range
+            q = q.order_by(Hist.snapshot_time.desc()).limit(min(limit, 2000))
+    rows = q.order_by(Hist.snapshot_time.asc()).all()
+    if not interval or interval.lower() == 'raw':
+        return [ { 't': r.snapshot_time.isoformat(), 'nav': str(r.nav_per_share) } for r in rows ]
+    interval_map = { '1m':60, '5m':300, '1h':3600, '1d':86400 }
+    if interval not in interval_map:
+        raise HTTPException(status_code=400, detail='Invalid interval')
+    size = interval_map[interval]
+    buckets: dict[int, list] = {}
+    for r in rows:
+        epoch = int(r.snapshot_time.timestamp())
+        bucket_key = epoch - (epoch % size)
+        buckets.setdefault(bucket_key, []).append(r)
+    out = []
+    for k in sorted(buckets.keys()):
+        pts = buckets[k]
+        # Use last value in bucket (close) plus first (open) & min/max for optional charting
+        open_v = pts[0].nav_per_share
+        close_v = pts[-1].nav_per_share
+        high_v = max(p.nav_per_share for p in pts)
+        low_v = min(p.nav_per_share for p in pts)
+        out.append({ 't': datetime.utcfromtimestamp(k).replace(tzinfo=timezone.utc).isoformat(), 'open': str(open_v), 'close': str(close_v), 'high': str(high_v), 'low': str(low_v) })
+    return out

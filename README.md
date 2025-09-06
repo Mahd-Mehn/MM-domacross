@@ -127,6 +127,15 @@ npx hardhat run scripts/deploy.ts --network doma_testnet
 - **Competition Management**: Create, join, and track competitions
 - **Portfolio Tracking**: Real-time portfolio valuation
 - **Leaderboard System**: Rank participants by performance
+- **Real-Time Trading Feed**: WebSocket sequencing with gap detection + incremental backfill (`since_seq`)
+- **Listings & Offers Lifecycle**: Create / buy / cancel listings, create / accept / cancel offers (SDK-first)
+- **Optimistic UI Updates**: Temp entries reconciled via contract+token mapping
+- **Event Store & Activity Feed**: In-memory circular buffer (capture + export/import replay)
+- **Replay Controls**: Capture toggle, export/import JSON, timed playback with speed control
+- **Demo Dataset & Full Replay Manifest**: Deterministic seed script + comprehensive 20s manifest (listings/offers/fills/cancels/valuations/NAV/flows/fees)
+- **Valuation Panel**: Live `valuation_update` event digestion with delta % computation
+- **Leaderboard Panel**: Session-scope live score aggregation from `leaderboard_delta`
+- **Offer Multi-Currency Support**: Dynamic supported currencies enumeration + correct decimals handling
 - **Cross-Chain Ready**: Architecture supports multiple blockchains
 - **Database Schema**: Complete PostgreSQL schema
 - **API Endpoints**: RESTful APIs for all features
@@ -134,12 +143,76 @@ npx hardhat run scripts/deploy.ts --network doma_testnet
 - **Frontend UI**: Modern React components with Tailwind CSS
 
 ### 🚧 In Progress
-- **Real-time Updates**: WebSocket connections for live data
-- **Advanced Trading**: Domain buying/selling interface
+- **Advanced Trading Enhancements**: Extended order types, batch actions
 - **Prize Distribution**: Automated winner payouts
 - **Cross-Chain Integration**: Doma bridge integration
+- **Playback UX Improvements**: Timeline scrubber & label overlay for replay mode
+- **Auth Hardening**: WebSocket auth tokens for private event scopes
+- **On-Chain Event Backfill**: Historical sync & reorg safety
 
 ## 🧪 Testing
+## 🔄 Real-Time Architecture Overview
+
+| Component | Description |
+|-----------|-------------|
+| WebSocket Sequencing | Every event assigned a monotonically increasing `seq`; clients persist last applied seq in `localStorage` (`rt_seq`). |
+| Gap Detection | If incoming `seq > last_seq + 1`, client triggers incremental backfill via REST using `?since_seq=<last_seq>`. |
+| Differential Backfill | `/api/v1/listings` & `/api/v1/offers` accept `since_seq` returning only newly created active entries. |
+| Optimistic Entries | Temporary IDs (`temp-*`) inserted immediately; replaced when authoritative `listing_created` / `offer_created` arrives (match by contract+token). |
+| Event Store | Lightweight in-memory buffer (max 300) with capture toggle; supports replay export/import JSON (versioned). |
+| Replay Controls | UI allows capture enable/disable, export, import, and timed playback dispatching events as custom `doma-replay-event`. |
+| Panels | Valuation panel consumes `valuation_update`; leaderboard panel aggregates `leaderboard_delta`. |
+
+### Event Types (Frontend Focus)
+`listing_created`, `listing_filled`, `listing_cancelled`, `offer_created`, `offer_accepted`, `offer_cancelled`, `valuation_update`, `leaderboard_delta`
+
+### Optimistic Replacement Logic
+Listings & offers initially rendered with `temp-*` IDs; when the real event shares contract + tokenId, temp entry is replaced preserving insertion order.
+
+## 🎛 Replay & Capture Usage
+1. Ensure activity is generating events (listings/offers or valuation batch calls).
+2. In Dashboard -> Recent Activity card, toggle Capture (green = on).
+3. Perform actions, then Export to download `events_capture.json`.
+4. Import the same (or modified) file and click Replay. Panels listening to `doma-replay-event` update without touching live seq state.
+5. Adjust speed (200ms, 500ms, 1000ms) for slower/faster playback.
+
+### 🎬 Demo Dataset & Replay Mode
+
+A deterministic demo dataset + expanded replay manifest enables instant showcase without manual actions.
+
+Seed the dataset:
+```bash
+cd apps/api
+python -m app.cli.seed_demo_dataset
+```
+
+Start services then open the dashboard with `?demo=1` to enable Demo Mode controls:
+
+```
+http://localhost:3000/dashboard?demo=1
+```
+
+Manifests:
+- `demo/demo-manifest.sample.jsonl` (minimal quick run)
+- `demo/demo-manifest.full.jsonl` (~20s sequence: listings / offers / fills / cancels / valuations across 10 domains + ETF NAV, flows, fee accruals, leaderboard deltas)
+
+Switch manifests via the Sample / Full buttons in the Demo Replay section of `LiveOpsPanel`.
+
+## 💱 Multi-Currency Offers
+Offer form fetches supported currencies via SDK (`getSupportedCurrencies`). Selected currency's decimals determine unit conversion (`parseUnits` equivalent via `viem`). Last chosen currency persists in `localStorage` (`offer_currency`).
+
+## 📊 Valuation Updates
+`POST /valuation/batch` triggers server-side valuation computations. Backend emits `valuation_update` with optional `previous_value` & `change_pct`. Frontend panel computes delta fallback if not provided and lists most recent per domain.
+
+## 🧩 Leaderboard Deltas
+`leaderboard_delta` events accumulate session scores per address. Client aggregates in-memory (no persistence yet) and renders top 25. Future work: merge with server authoritative rankings & add paging.
+
+## 🔐 Pending Hardening Items
+- WebSocket authentication (token / signature) for private scopes.
+- Replay isolation guardrails (currently separate custom event channel; maintain).
+- Rate-limited backfill on repeated gap triggers.
+- Cleanup of stale optimistic entries if authoritative event never arrives (time-based eviction).
+
 
 ### Smart Contracts
 ```bash
@@ -190,6 +263,40 @@ Events are emitted synchronously after trade processing; tests assert contract.
 - Expand idempotency to issuance / other settlement intents.
 - Add anomaly scoring (z-score on trade frequency) feeding a `ANOMALY` flag.
 - Persistence of rolling participant metrics for ML-based flagging.
+
+## 📝 Policy, Whitelisting & KYC (Phase 7)
+
+| Component | Endpoint(s) | Description |
+|-----------|-------------|-------------|
+| Domain Whitelist | `GET/POST/DELETE /api/v1/policy/whitelist` | Admin CRUD for allowed domains (if any active entries exist all listings/offers/buys restricted to set) |
+| Governance Config | `GET /api/v1/policy/config`, `POST /api/v1/policy/config/{key}` | Key/value config store for tunable governance parameters (JSON values) |
+| KYC Requests | `POST /api/v1/policy/kyc/request` | User submits optional document hash for verification |
+| KYC Review | `GET /api/v1/policy/kyc/requests` + `POST .../approve|reject` | Admin approves / rejects; sets `user.kyc_verified` |
+| Admin Action Audit | `GET /api/v1/policy/audit` | Immutable log of admin policy actions (whitelist, KYC, config) |
+| Reward KYC Gating | (server internal) | Epoch reward distribution zeroes reward_amount for non‑KYC users (raw amount preserved for later claim) |
+| Reward Claim | `POST /api/v1/competitions/{competition_id}/epochs/{epoch_index}/claim` | User reclaims previously gated reward once KYC passes (retroactive) |
+
+KYC Flow:
+1. User calls submit endpoint (status=PENDING).
+2. Admin reviews pending queue, approves (sets `kyc_verified=true`) or rejects (status=REJECTED with notes).
+3. Distribution logic writes both `raw_reward_amount` and gated `reward_amount`. Non‑verified users get `reward_amount=0` but retain `raw_reward_amount` for later claim.
+4. After approval, user calls claim endpoint to set `reward_amount = raw_reward_amount` and mark `claimed_at` (idempotent).
+
+Admin Authentication: wallets listed in `ADMIN_WALLETS_ENV` (comma or JSON list) are treated as admins on startup; plus per‑user `is_admin` boolean allows manual elevation.
+
+Whitelist Enforcement Logic: Listing / offer / buy endpoints query active whitelist rows. If any exist, domain must be present or a 400 error (`domain not whitelisted`) is returned. ETF creation already enforced previously.
+
+Audit Coverage: Every policy change inserts `admin_action_audit` row: action types include `WHITELIST_ADD`, `WHITELIST_DEACTIVATE`, `GOV_CONFIG_CREATE`, `GOV_CONFIG_UPDATE`, `KYC_APPROVE`, `KYC_REJECT`, `WHITELIST_REACTIVATE`.
+
+Realtime Events (emitted over `/ws` when subscribed):
+- `policy_change` (subtype: whitelist_add|whitelist_reactivate|whitelist_deactivate|config_upsert)
+- `kyc_status` (status transitions: PENDING, APPROVED, REJECTED)
+- `reward_claim` (user successfully claims retroactive reward)
+
+Roadmap Additions (remaining / future hardening):
+- On-chain settlement verification for claimed rewards.
+- Admin UI live refresh via websocket (already receiving events; add optimistic update patterns).
+- KYC document storage off-chain with signed hash anchoring.
 
 
 Headers returned:

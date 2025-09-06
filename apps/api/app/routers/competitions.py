@@ -27,6 +27,7 @@ from app.config import settings
 from app.broadcast import get_sync_broadcast
 from math import sqrt
 from app.services.metrics_service import get_full_leaderboard
+from decimal import Decimal
 
 getcontext().prec = 28
 
@@ -281,6 +282,151 @@ async def portfolio_history(competition_id: int, participant_id: int, hours: int
     rows = db.query(PortfolioValueHistory).filter(PortfolioValueHistory.participant_id==participant_id, PortfolioValueHistory.snapshot_time >= cutoff).order_by(PortfolioValueHistory.snapshot_time.asc()).all()
     return [{ 't': r.snapshot_time.isoformat(), 'v': str(r.value) } for r in rows]
 
+@router.get('/competitions/{competition_id}/performance/aggregations')
+def performance_aggregations(competition_id: int, db: Session = Depends(get_db)):
+    """Return participant portfolio value percentage deltas over 1h / 24h / 7d windows.
+    Windows are best-effort; if insufficient history a delta may be null.
+    """
+    now = datetime.now(timezone.utc)
+    horizons = { '1h': now - timedelta(hours=1), '24h': now - timedelta(hours=24), '7d': now - timedelta(days=7) }
+    participants = db.query(ParticipantModel).filter(ParticipantModel.competition_id==competition_id).all()
+    if not participants:
+        return { 'competition_id': competition_id, 'participants': [] }
+    # Fetch all history for 7d window
+    earliest = min(horizons.values())
+    histories = db.query(PortfolioValueHistory).filter(PortfolioValueHistory.snapshot_time >= earliest, PortfolioValueHistory.participant_id.in_([p.id for p in participants])).order_by(PortfolioValueHistory.participant_id.asc(), PortfolioValueHistory.snapshot_time.asc()).all()
+    by_part: dict[int, list[PortfolioValueHistory]] = {}
+    for row in histories:
+        by_part.setdefault(row.participant_id, []).append(row)
+    results = []
+    for p in participants:
+        vals = by_part.get(p.id, [])
+        latest_v = Decimal(vals[-1].value) if vals else Decimal(p.portfolio_value or 0)
+        entry = { 'participant_id': p.id, 'user_id': p.user_id }
+        for label, cutoff in horizons.items():
+            base = None
+            for r in vals:
+                if r.snapshot_time >= cutoff:
+                    base = Decimal(r.value)
+                    break
+            if base and base > 0:
+                entry[label] = f"{((latest_v - base)/base * 100):.4f}"
+            else:
+                entry[label] = None
+        results.append(entry)
+    return { 'competition_id': competition_id, 'generated_at': now.isoformat(), 'participants': results }
+
+@router.get('/competitions/{competition_id}/participants/{participant_id}/risk-profile')
+def risk_profile(competition_id: int, participant_id: int, window_hours: int = Query(168, le=720), db: Session = Depends(get_db)):
+    p = db.query(ParticipantModel).filter(ParticipantModel.competition_id==competition_id, ParticipantModel.user_id==participant_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail='Participant not found')
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    hist = db.query(PortfolioValueHistory).filter(PortfolioValueHistory.participant_id==p.id, PortfolioValueHistory.snapshot_time >= cutoff).order_by(PortfolioValueHistory.snapshot_time.asc()).all()
+    values: list[tuple[datetime, Decimal]] = [(h.snapshot_time, Decimal(h.value)) for h in hist]
+    # Returns
+    rets: list[float] = []
+    for i in range(1, len(values)):
+        prev = float(values[i-1][1]); cur = float(values[i][1])
+        if prev > 0:
+            rets.append((cur-prev)/prev)
+    vol = 0.0
+    if len(rets) > 1:
+        m = sum(rets)/len(rets)
+        vol = sqrt(sum((r-m)**2 for r in rets)/(len(rets)-1))
+    # Max drawdown
+    peak = None
+    max_dd = 0.0
+    for _, v in values:
+        fv = float(v)
+        if peak is None or fv > peak:
+            peak = fv
+        if peak is not None and peak > 0:
+            dd = (peak - fv)/peak
+            if dd > max_dd:
+                max_dd = dd
+    # Concentration (HHI) from holdings
+    from app.models.database import ParticipantHolding, Domain  # type: ignore
+    holds = db.query(ParticipantHolding).filter(ParticipantHolding.participant_id==p.id, ParticipantHolding.quantity > 0).all()
+    total_val = Decimal(0)
+    weights: list[Decimal] = []
+    for h in holds:
+        dom = db.query(Domain).filter(Domain.name==h.domain_name).first()
+        if not dom or dom.last_estimated_value is None:
+            continue
+        val = Decimal(dom.last_estimated_value) * Decimal(h.quantity or 0)
+        total_val += val
+        weights.append(val)
+    hhi = 0.0
+    if total_val > 0:
+        hhi = float(sum((w/total_val)**2 for w in weights))
+    # Turnover & concentration index fallback from rewards if exists
+    reward = db.query(CompetitionReward).filter(CompetitionReward.competition_id==competition_id, CompetitionReward.user_id==participant_id).order_by(CompetitionReward.distributed_at.desc()).first()
+    turnover = float(reward.turnover_ratio) if reward and reward.turnover_ratio is not None else 0.0
+    concentration_index = float(reward.concentration_index) if reward and reward.concentration_index is not None else hhi
+    return {
+        'participant_id': participant_id,
+        'competition_id': competition_id,
+        'window_hours': window_hours,
+        'volatility': f"{vol:.6f}",
+        'max_drawdown_pct': f"{max_dd*100:.4f}",
+        'turnover_ratio': f"{turnover:.6f}",
+        'concentration_index': f"{concentration_index:.6f}",
+        'hhi_snapshot': f"{hhi:.6f}",
+        'sample_returns': len(rets)
+    }
+
+@router.get('/competitions/{competition_id}/participants/{participant_id}/execution-quality')
+def execution_quality(competition_id: int, participant_id: int, window_hours: int = Query(168, le=720), db: Session = Depends(get_db)):
+    """Approximate slippage metrics using rolling median of prior trades for each token as reference.
+    This is a heuristic (no full orderbook reconstruction)."""
+    from app.models.database import Trade
+    participant = db.query(ParticipantModel).filter(ParticipantModel.competition_id==competition_id, ParticipantModel.user_id==participant_id).first()
+    if not participant:
+        raise HTTPException(status_code=404, detail='Participant not found')
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    trades = db.query(Trade).filter(Trade.participant_id==participant.id, Trade.timestamp >= cutoff).order_by(Trade.timestamp.asc()).all()
+    ref_prices: dict[tuple[str,str], list[Decimal]] = {}
+    samples = []
+    total_slip = Decimal(0)
+    worst: Decimal = Decimal(0)
+    evaluated = 0
+    for t in trades:
+        key = (t.domain_token_address, t.domain_token_id)
+        history = ref_prices.setdefault(key, [])
+        price = Decimal(t.price)
+        benchmark = None
+        if history:
+            # median of previous prices
+            sorted_hist = sorted(history)
+            mid = len(sorted_hist)//2
+            if len(sorted_hist) % 2 == 1:
+                benchmark = sorted_hist[mid]
+            else:
+                benchmark = (sorted_hist[mid-1] + sorted_hist[mid]) / 2
+        if benchmark and benchmark > 0:
+            slip = (price - benchmark) / benchmark
+            total_slip += slip
+            if abs(slip) > abs(worst):
+                worst = slip
+            evaluated += 1
+            if len(samples) < 50:
+                samples.append({ 'trade_id': t.id, 'ts': t.timestamp.isoformat(), 'price': str(price), 'benchmark': str(benchmark), 'slippage_pct': f"{slip*100:.4f}" })
+        history.append(price)
+        if len(history) > 25:  # cap memory
+            del history[0]
+    avg_slip = (total_slip / evaluated) if evaluated else Decimal(0)
+    return {
+        'competition_id': competition_id,
+        'participant_id': participant_id,
+        'window_hours': window_hours,
+        'trades_considered': len(trades),
+        'trades_evaluated': evaluated,
+    'average_slippage_pct': f"{(avg_slip*Decimal(100)):.4f}",
+    'worst_slippage_pct': f"{(worst*Decimal(100)):.4f}",
+        'sample_trades': samples
+    }
+
 @router.post('/competitions/{competition_id}/epochs/{epoch_index}/distribute')
 async def distribute_epoch_rewards(
     competition_id: int,
@@ -316,7 +462,15 @@ async def distribute_epoch_rewards(
             reward_amount = (base_share * bonus_factor).quantize(Decimal('0.00000001'))
         else:
             reward_amount = Decimal(0)
-        r.reward_amount = reward_amount
+        # KYC gating: zero out reward if user not kyc_verified
+        from app.models.database import User as _U
+        u = db.query(_U).filter(_U.id == r.user_id).first()
+        r.raw_reward_amount = reward_amount
+        if u and not u.kyc_verified:
+            # still record zero distributed reward; can claim later once KYC passes
+            r.reward_amount = Decimal(0)
+        else:
+            r.reward_amount = reward_amount
         r.distributed_at = now
         db.add(r)
         distributed_count += 1
@@ -327,6 +481,37 @@ async def distribute_epoch_rewards(
     if broadcast:
         broadcast({'type': 'epoch_distributed', 'competition_id': competition_id, 'epoch_index': epoch_index})
     return { 'status': 'distributed', 'epoch': epoch_index, 'rewards_updated': distributed_count }
+
+@router.post('/competitions/{competition_id}/epochs/{epoch_index}/claim')
+async def claim_epoch_reward(competition_id: int, epoch_index: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    # User must be KYC verified to claim
+    if not current_user.kyc_verified:
+        raise HTTPException(status_code=403, detail='KYC required')
+    epoch = db.query(CompetitionEpoch).filter(CompetitionEpoch.competition_id==competition_id, CompetitionEpoch.epoch_index==epoch_index).first()
+    if not epoch:
+        raise HTTPException(status_code=404, detail='Epoch not found')
+    if not epoch.distributed:
+        raise HTTPException(status_code=400, detail='Epoch not yet distributed')
+    reward = db.query(CompetitionReward).filter(CompetitionReward.epoch_id==epoch.id, CompetitionReward.user_id==current_user.id).first()
+    if not reward:
+        raise HTTPException(status_code=404, detail='No reward entry')
+    if reward.claimed_at:
+        return { 'status': 'already_claimed', 'amount': str(reward.reward_amount or 0) }
+    if reward.reward_amount and reward.reward_amount > 0:
+        # Already present (user was KYC at distribution time) just mark claimed
+        pass
+    else:
+        # Retroactive claim if raw_reward_amount existed
+        if reward.raw_reward_amount and (reward.raw_reward_amount or 0) > 0:
+            reward.reward_amount = reward.raw_reward_amount
+        else:
+            return { 'status': 'no_reward' }
+    reward.claimed_at = datetime.now(timezone.utc)
+    db.add(reward); db.commit(); db.refresh(reward)
+    broadcast = get_sync_broadcast()
+    if broadcast:
+        broadcast({'type': 'reward_claim', 'competition_id': competition_id, 'epoch_index': epoch_index, 'user_id': current_user.id, 'amount': str(reward.reward_amount or 0)})
+    return { 'status': 'claimed', 'amount': str(reward.reward_amount or 0) }
 
 
 @router.get('/competitions/{competition_id}/reward-pool/summary')

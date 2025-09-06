@@ -1,0 +1,9 @@
+{"delay_ms":0,"event":{"type":"listing_created","id":"d1","domain":"alpha.eth","seller":"0xSeller","price":"0.10","contract":"0xABCDEF0000000000000000000000000000000000","token_id":"1"}}
+{"delay_ms":800,"event":{"type":"offer_created","id":"o1","domain":"alpha.eth","offerer":"0xBuyer","price":"0.08"}}
+{"delay_ms":1600,"event":{"type":"valuation_update","domain":"alpha.eth","value":"0.11","previous_value":"0.10","change_pct":10.0,"model_version":"v1"}}
+{"delay_ms":2400,"event":{"type":"leaderboard_delta","user":"0xBuyer","score":5,"delta":5}}
+{"delay_ms":3000,"event":{"type":"listing_filled","id":"d1"}}
+{"delay_ms":3600,"event":{"type":"valuation_update","domain":"alpha.eth","value":"0.13","previous_value":"0.11","change_pct":18.18,"model_version":"v1"}}
+{"delay_ms":4200,"event":{"type":"leaderboard_delta","user":"0xSeller","score":3,"delta":3}}
+{"delay_ms":4800,"event":{"type":"nav_update"}}
+{"delay_ms":5200,"event":{"type":"valuation_update","domain":"alpha.eth","value":"0.129","previous_value":"0.13","change_pct":-0.77,"model_version":"v1"}}

@@ -2,6 +2,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiJson, authHeader } from '../../../lib/api';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts';
 import Link from 'next/link';
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '../../../components/ui/Button';
@@ -113,7 +114,12 @@ export default function ETFDetailPage(){
   const [redeemShares, setRedeemShares] = useState('');
   const [redeemSettlementIds, setRedeemSettlementIds] = useState('');
   const navPerShareQ = useQuery({ queryKey:['etf-navps', id], queryFn:()=> apiJson<{etf_id:number; nav_per_share:string|null}>(`/api/v1/etfs/${id}/nav/per-share`, { headers: authHeader() }), refetchInterval: 15000 });
-  const navHistoryQ = useQuery({ queryKey:['etf-nav-history', id], queryFn:()=> apiJson<NavPoint[]>(`/api/v1/etfs/${id}/nav/history?limit=720`, { headers: authHeader() }), refetchInterval: 60000 });
+  const [navInterval, setNavInterval] = useState<'raw'|'1m'|'5m'|'1h'|'1d'>('1h');
+  const navHistoryQ = useQuery({
+    queryKey:['etf-nav-history', id, navInterval],
+    queryFn:()=> apiJson<any[]>(`/api/v1/etfs/${id}/nav/history?interval=${navInterval}&limit=1440`, { headers: authHeader() }),
+    refetchInterval: 60000
+  });
   const [range, setRange] = useState<'1D'|'7D'|'30D'|'ALL'>('30D');
   const ALL_EVENT_TYPES = ['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'];
   const [eventTypes, setEventTypes] = useState<string[]>(ALL_EVENT_TYPES);
@@ -280,6 +286,39 @@ export default function ETFDetailPage(){
           )}
         </div>
         <p className="text-[11px] text-slate-500 leading-relaxed max-w-2xl">Chart displays recorded NAV per share snapshots (up to last 720 points). Performance fee crystallizations can cause step-changes; creation/redemption flows indirectly impact trajectory via capital inflows/outflows. APY estimate uses 30-day compounding of underlying fee accrual and performance.</p>
+      </section>
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold tracking-tight">NAV History</h2>
+          <div className="flex gap-2 text-xs">
+            {['raw','1m','5m','1h','1d'].map(opt => (
+              <button key={opt} onClick={()=> setNavInterval(opt as any)} className={`px-2 py-1 rounded border ${navInterval===opt? 'bg-brand-600 border-brand-400 text-white':'border-white/10 text-slate-400 hover:text-slate-200'}`}>{opt}</button>
+            ))}
+          </div>
+        </div>
+        <div className="surface rounded-xl p-4">
+          {navHistoryQ.isLoading && <div className="text-xs text-slate-500">Loading history...</div>}
+          {(!navHistoryQ.isLoading && navHistoryQ.data && navHistoryQ.data.length===0) && <div className="text-xs text-slate-500">No NAV points yet.</div>}
+          {navHistoryQ.data && navHistoryQ.data.length>0 && (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={navHistoryQ.data} margin={{left:0,right:0,top:5,bottom:5}}>
+                  <defs>
+                    <linearGradient id="navfill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#7b5cff" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="#7b5cff" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="t" stroke="#64748b" tickLine={false} fontSize={10} tickFormatter={(v:any)=> (v||'').slice(11,16)} />
+                  <YAxis stroke="#64748b" tickLine={false} fontSize={10} domain={[0,'dataMax + 5%']} />
+                  <Tooltip contentStyle={{background:'#0f1826', border:'1px solid #1e293b', fontSize:12}} />
+                  <Area type="monotone" dataKey={navInterval==='raw' ? 'nav' : 'close'} stroke="#7b5cff" strokeWidth={2} fill="url(#navfill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
       </section>
   <section className="space-y-4">
         <h2 className="text-2xl font-bold tracking-tight">Composition</h2>
