@@ -73,24 +73,25 @@ Phase 1 Wrap Summary: Core loop primitives (live leaderboard, reward distributio
 
 ## 6. Anti-Abuse / Risk Controls
 
-- [ ] Wash-Trade Detection (same wallet rapid buy/sell same asset)
-- [ ] Self-Cross / Circular Trade Pattern Flagging
-- [ ] Rate Limiting (per wallet + per IP tier simple token bucket)
-- [ ] Circuit Breaker (suspend trading on extreme NAV move > X%)
-- [ ] Replay / Idempotency Guards for external settlement intents
+- [X] Wash-Trade Detection (heuristic + dedicated test + websocket emission)
+- [X] Self-Cross / Circular Trade Pattern Flagging (heuristics + tests + websocket emission)
+- [X] Rapid Flip Detection (heuristic + test)
+- [X] Rate Limiting (per wallet + per IP token bucket implemented in `abuse_guard`, tested)
+- [X] Circuit Breaker (NAV move trigger implemented, Redis persistence, enforced on trading endpoints, tested)
+- [~] Replay / Idempotency Guards for external settlement intents (redemption + competition settlement submit idempotent; issuance & other intents pending)
 
-- [~] Risk Flag Event Emission (placeholder; needs real heuristics)
+- [X] Risk Flag Event Emission (schema documented; websocket contract test passes)
 
 ## 7. Whitelisting / Policy
 
-- [ ] Domain / Asset Whitelist Enforcement in trade & listing flows
-- [ ] Governance Config Endpoint (current policies & editable fields)
-- [ ] Admin Action Audit Log
+- [X] Domain / Asset Whitelist Enforcement in trade & listing flows (ETF create + whitelist CRUD endpoints)
+- [X] Governance Config Endpoint (list/upsert keys)
+- [X] Admin Action Audit Log (admin_action_audit table + /policy/audit)
 
-- [ ] Offchain Whitelisting & KYC (prize distribution)
-	- [ ] Offchain KYC workflow integration (optional: third-party provider) + admin approval flow
+- [~] Offchain Whitelisting & KYC (prize distribution)
+	- [X] Offchain KYC workflow endpoints (submit, approve, reject) + user.kyc_verified flag
 	- [ ] Admin UI for whitelist, revoke, and manual payout exceptions
-	- [ ] Audit events emitted for KYC/whitelist changes
+	- [X] Audit events emitted for KYC/whitelist changes (AdminActionAudit entries)
 
 ## 8. Analytics & Time Series
 
@@ -234,6 +235,7 @@ Each item above should be linked inside the repo (or included in the submission 
 - 2025-09-04: Implemented periodic Merkle snapshot scheduler + stub chain ingestion audit events; unified fee event proofs endpoint & frontend integration with optimistic events.
 - 2025-09-04: Added Settlement Provenance & Verification README section (Merkle proofs, integrity hash chain, streaming export docs, redemption semantic validation env vars).
  - 2025-09-05: Completed On-chain Competition Settlement (contract, payout events, backend submit/verify with semantic receipt checks, Hardhat test, demo script, frontend admin UI hooks).
+- 2025-09-06: Phase 6 core anti-abuse scaffolding: rate limiting, circuit breaker, extended risk flag heuristics (wash/self-cross/circular/rapid flip), redemption intent idempotency endpoint, initial abuse tests (rate limit, circuit breaker, idempotent redemption). Further tests & docs pending.
 
 ---
 

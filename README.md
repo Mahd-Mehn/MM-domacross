@@ -159,6 +159,39 @@ We provide a JSONL audit export with cursor-based resumption:
 
 Endpoint: `GET /api/v1/settlement/audit-export?limit=5000&after_id=<last_id>` (admin only)
 
+## 🛡️ Anti-Abuse & Risk Controls
+
+| Control | Description | Trigger / Window | Persistence |
+|---------|-------------|------------------|-------------|
+| Rate Limiting | Per-wallet & per-IP token bucket | N trades/min (configurable burst) | In-memory + Redis ZSET (timestamps) |
+| Circuit Breaker | Halts trading on extreme NAV move | Absolute NAV move >= threshold bps over rolling window | In-memory + Redis key with TTL |
+| Wash Trade Detection | Opposite side trade by same participant on domain | 120s window | DB `trade_risk_flags` + websocket `risk_flag` event |
+| Rapid Flip Detection | >=3 flips (side changes) then new trade flags | 10m window | DB + websocket |
+| Self-Cross | Opposite side within 30s (tighter wash) | 30s window | DB + websocket |
+| Circular Pattern | Domain traded among ≥3 participants and returns to origin | 10m sequence scan | DB + websocket |
+| Idempotent Redemption Intent | Prevent duplicate redemption creation | Idempotency-Key header | `idempotency_keys` table |
+| Idempotent Competition Settlement Submit | Prevent duplicate settlement submissions | Idempotency-Key header | `idempotency_keys` table |
+
+### Redis Behavior
+If `REDIS_URL` is set:
+- Rate limiting buckets stored as sorted sets: `abuse:bucket:<wallet_or_ip>`
+- Circuit breaker flag stored as `abuse:circuit_breaker` with TTL = breaker window.
+Fallback gracefully degrades to in-memory structures if Redis unreachable.
+
+### WebSocket Risk Events
+Clients subscribe using: `GET /ws?events=risk_flag`.
+Payload shape:
+```json
+{ "type": "risk_flag", "trade_id": <int>, "flag_type": "WASH_LIKELY|RAPID_FLIP|SELF_CROSS|CIRCULAR_PATTERN" }
+```
+Events are emitted synchronously after trade processing; tests assert contract.
+
+### Extensibility Roadmap
+- Expand idempotency to issuance / other settlement intents.
+- Add anomaly scoring (z-score on trade frequency) feeding a `ANOMALY` flag.
+- Persistence of rolling participant metrics for ML-based flagging.
+
+
 Headers returned:
 * `X-Next-Cursor`: last event id in the batch (use as `after_id` to resume)
 * `X-Integrity-OK`: `true|false` if integrity chain verification passed when `verify_integrity=true`

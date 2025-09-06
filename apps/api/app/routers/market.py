@@ -235,6 +235,13 @@ def create_listing(
     ip = request.client.host if request and request.client else None  # type: ignore
     if not abuse_guard.check_rate_limit(user.wallet_address, ip):
         raise HTTPException(status_code=429, detail='rate limit exceeded')
+    # Whitelist enforcement: if whitelist active restrict domain
+    from app.models.database import DomainWhitelist
+    wl_active = db.query(DomainWhitelist).filter(DomainWhitelist.active == True).all()  # noqa: E712
+    if wl_active:
+        allowed = {w.domain_name for w in wl_active}
+        if domain.lower() not in allowed:
+            raise HTTPException(status_code=400, detail='domain not whitelisted')
     _get_or_create_domain(db, domain)
     try:
         price_dec = Decimal(price)
@@ -267,6 +274,12 @@ def record_buy(
     # Simple persistence: mark any listing inactive if domain provided & seller differs.
     if domain:
         name_l = domain.lower()
+        from app.models.database import DomainWhitelist
+        wl_active = db.query(DomainWhitelist).filter(DomainWhitelist.active == True).all()  # noqa: E712
+        if wl_active:
+            allowed = {w.domain_name for w in wl_active}
+            if name_l not in allowed:
+                raise HTTPException(status_code=400, detail='domain not whitelisted')
         _get_or_create_domain(db, name_l)
         # Deactivate lowest priced active listing as matched fill heuristic
         lst = db.query(Listing).filter(Listing.domain_name == name_l, Listing.active == True).order_by(Listing.price.asc()).first()  # noqa: E712
@@ -320,6 +333,12 @@ def create_offer(
     ip = request.client.host if request and request.client else None  # type: ignore
     if not abuse_guard.check_rate_limit(user.wallet_address, ip):
         raise HTTPException(status_code=429, detail='rate limit exceeded')
+    from app.models.database import DomainWhitelist
+    wl_active = db.query(DomainWhitelist).filter(DomainWhitelist.active == True).all()  # noqa: E712
+    if wl_active:
+        allowed = {w.domain_name for w in wl_active}
+        if domain.lower() not in allowed:
+            raise HTTPException(status_code=400, detail='domain not whitelisted')
     _get_or_create_domain(db, domain)
     try:
         price_dec = Decimal(price)

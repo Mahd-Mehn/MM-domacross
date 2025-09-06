@@ -8,6 +8,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     wallet_address = Column(String(42), unique=True, nullable=False, index=True)
     username = Column(String(255), unique=True, nullable=True)
+    is_admin = Column(Boolean, default=False, index=True)
+    kyc_verified = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Season(Base):
@@ -299,6 +301,32 @@ class DomainWhitelist(Base):
     domain_name = Column(String(255), unique=True, nullable=False, index=True)
     active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class GovernanceConfig(Base):
+    __tablename__ = 'governance_config'
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(64), unique=True, nullable=False, index=True)
+    value = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
+
+class AdminActionAudit(Base):
+    __tablename__ = 'admin_action_audit'
+    id = Column(Integer, primary_key=True, index=True)
+    admin_user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    action_type = Column(String(64), nullable=False, index=True)
+    target = Column(String(255), nullable=True, index=True)
+    meta = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+class KYCRequest(Base):
+    __tablename__ = 'kyc_requests'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    status = Column(String(32), nullable=False, index=True, default='PENDING')  # PENDING | APPROVED | REJECTED
+    document_hash = Column(String(130), nullable=True)  # optional reference (hash of doc bundle)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
 # Risk flags (wash trading, self-cross, rapid flips)
 class TradeRiskFlag(Base):

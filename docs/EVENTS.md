@@ -122,6 +122,14 @@ Heuristic risk marker for anomalous or potentially manipulative trades.
 }
 ```
 
+	Additional flag_type values now emitted:
+
+	- RAPID_FLIP: >3 alternating-side trades on the same domain by the same participant in a 10 minute window.
+	- SELF_CROSS: Opposite-side trade by same participant within 30 seconds (tight wash/self-cross heuristic).
+	- CIRCULAR_PATTERN: Domain traded among >=3 distinct participants then returns to origin participant within 10 minutes.
+
+	Event payload remains minimal {type, trade_id, flag_type[, severity, ts]}. Rich contextual details (e.g. against_trade_id, flip_count, participant chain) are stored in database `trade_risk_flags.details` but intentionally not broadcast to reduce payload size and prevent strategy leakage.
+
 ### epoch_distributed
 Emitted after reward distribution for an epoch within a competition.
 ```json

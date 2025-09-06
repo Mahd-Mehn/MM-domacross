@@ -38,7 +38,11 @@ def get_sync_broadcast() -> Optional[Callable[[dict], None]]:
         return None
     def sync_send(payload: dict):
         try:
-            loop.create_task(broadcast_event(payload))
+            # If loop is running (e.g. inside FastAPI lifespan), schedule task.
+            if loop.is_running():
+                loop.create_task(broadcast_event(payload))
+            else:  # execute immediately (test / sync context)
+                loop.run_until_complete(broadcast_event(payload))
         except Exception:
             pass
     return sync_send

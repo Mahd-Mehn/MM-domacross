@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives
+from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy
 from app.services.incentive_service import incentive_service
 import logging
 from typing import List
@@ -283,6 +283,7 @@ app.include_router(etf.router, prefix="/api/v1")
 app.include_router(seasons.router, prefix="/api/v1")
 app.include_router(settlement.router, prefix="/api/v1")
 app.include_router(incentives.router, prefix="/api/v1")
+app.include_router(policy.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")

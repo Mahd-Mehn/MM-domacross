@@ -385,7 +385,25 @@ class CompetitionSettlementSubmit(BaseModel):
     total_amount: str | None = None  # if omitted and distribution provided we derive sum
 
 @router.post('/settlement/competitions/{competition_id}/submit')
-async def submit_competition_settlement(competition_id: int, data: CompetitionSettlementSubmit, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+async def submit_competition_settlement(competition_id: int, data: CompetitionSettlementSubmit, request: Request, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    # Optional Idempotency-Key header to prevent duplicate submissions (same competition + tx_hash)
+    idem_key = request.headers.get('Idempotency-Key')
+    if idem_key:
+        existing = db.query(IdempotencyKey).filter(IdempotencyKey.key==idem_key).first()
+        if existing:
+            # Return latest prior submit audit event for this competition
+            prev = db.query(AuditEvent).filter(
+                AuditEvent.event_type=='COMPETITION_SETTLEMENT_SUBMIT',
+                AuditEvent.entity_type=='COMPETITION',
+                AuditEvent.entity_id==competition_id
+            ).order_by(AuditEvent.id.desc()).first()
+            if prev and isinstance(prev.payload, dict):
+                return {
+                    'audit_event_id': prev.id,
+                    'total_amount': prev.payload.get('total_amount'),
+                    'distribution_count': prev.payload.get('distribution_count'),
+                    'idempotent': True
+                }
     # Derive total if not supplied
     total = data.total_amount
     if not total and data.distribution:
@@ -402,8 +420,10 @@ async def submit_competition_settlement(competition_id: int, data: CompetitionSe
         'distribution_count': len(data.distribution or [])
     }
     ae = record_audit_event(db, event_type='COMPETITION_SETTLEMENT_SUBMIT', entity_type='COMPETITION', entity_id=competition_id, user_id=user.id, payload=payload)
+    if idem_key:
+        db.add(IdempotencyKey(key=idem_key, route='/settlement/competitions/submit'))
     db.commit()
-    return { 'audit_event_id': ae.id, 'total_amount': total, 'distribution_count': payload['distribution_count'] }
+    return { 'audit_event_id': ae.id, 'total_amount': total, 'distribution_count': payload['distribution_count'], 'idempotent': False }
 
 @router.post('/settlement/competitions/{competition_id}/verify')
 async def verify_competition_settlement(competition_id: int, tx_hash: str | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
