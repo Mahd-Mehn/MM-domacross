@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 // Central theme tokens (scales) for charts & UI surfaces.
 // Extend or override via <ThemeProvider value={...}> at root layout if desired.
@@ -49,7 +49,7 @@ const ThemeContext = createContext<ThemeTokens>(defaultTheme);
 
 export function ThemeProvider({ value, children }: { value?: Partial<ThemeTokens>; children: any }){
   const merged: ThemeTokens = { ...defaultTheme, ...(value||{}), colors: { ...defaultTheme.colors, ...(value?.colors||{}) } };
-  return <ThemeContext.Provider value={merged}>{children}</ThemeContext.Provider>;
+  return React.createElement(ThemeContext.Provider, { value: merged }, children);
 }
 
 export function useTheme(){

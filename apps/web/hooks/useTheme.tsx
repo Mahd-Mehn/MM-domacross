@@ -1,4 +1,5 @@
 "use client";
+// Single canonical theme implementation
 import React, { createContext, useContext, useEffect, useState, PropsWithChildren } from 'react';
 
 export interface ThemeTokens {

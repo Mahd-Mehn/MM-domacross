@@ -31,7 +31,8 @@ export function RiskSlippageCharts({ leaderboard = [] }: Props){
       queryKey:['risk-profile', competitionId, lb.user_id, riskRefreshMs],
       queryFn: ()=> apiJson<RiskProfile>(`/api/v1/competitions/${competitionId}/participants/${lb.user_id}/risk-profile`, { headers: authHeader() }),
       enabled: !!competitionId,
-      refetchInterval: paused ? false : riskRefreshMs,
+  // Use functional form so TypeScript matches (number | false | (()=>number|false)) allowed signature
+  refetchInterval: () => (paused ? false : riskRefreshMs),
       staleTime: (paused? Infinity : riskRefreshMs/2)
     }))
   });
@@ -40,7 +41,7 @@ export function RiskSlippageCharts({ leaderboard = [] }: Props){
       queryKey:['exec-quality', competitionId, lb.user_id, execRefreshMs],
       queryFn: ()=> apiJson<ExecutionQuality>(`/api/v1/competitions/${competitionId}/participants/${lb.user_id}/execution-quality`, { headers: authHeader() }),
       enabled: !!competitionId,
-      refetchInterval: paused ? false : execRefreshMs,
+  refetchInterval: () => (paused ? false : execRefreshMs),
       staleTime: (paused? Infinity : execRefreshMs/2)
     }))
   });

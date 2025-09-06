@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useIncentiveSchedules, useCurrentIncentiveEpoch, useEpochPoints } from '../../lib/hooks/useIncentives';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { apiJson, authHeader } from "../../lib/api";
 import { useAuth } from "../../components/AuthProvider";
 import { Metric } from "../../components/ui/Metric";
@@ -153,7 +153,9 @@ export default function DashboardPage() {
               <CardDescription>Replay & operational telemetry.</CardDescription>
             </CardHeader>
             <CardContent>
-              <LiveOpsPanel />
+              <Suspense fallback={<div className="text-xs text-slate-500 dark:text-slate-400 py-4">Loading live ops…</div>}>
+                <LiveOpsPanel />
+              </Suspense>
             </CardContent>
           </Card>
         </div>
