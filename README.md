@@ -1,6 +1,22 @@
-# DomaCross: Cross-Chain Domain Trading Competitions
+# DomaCross: Cross-Chain Domain Trading Competitions & Transparent Domain ETF Pipeline
 
 > Hackathon Submission – Doma Protocol DomainFi Builders (Track 2: Trading Competitions & Portfolio Tools)
+
+---
+
+## 📌 Executive Summary
+
+DomaCross converts opaque domain NFT speculation into a transparent, auditable competitive arena that graduates proven traders into ETF‑style domain portfolio managers. It combines:
+
+* Competition lifecycle & live performance telemetry (valuations, trades, risk, execution quality).
+* Multi-factor valuation oracle (trade VWAP, orderbook mid, top bid soft floor, last sale median, time‑decayed anchor, dispute clamp, ensemble stub) producing reproducible fair values.
+* Integrity substrate (rolling hash chain + periodic Merkle snapshots + signature stub) for verifiable settlement and emission provenance.
+* ETF NAV & fee accrual engine enabling passive exposure and secondary transaction vectors (issuance/redemption arbitrage, APY capture).
+* Deterministic replay dataset & JSONL manifests for instant judge verification, regression safety, and analytics reproducibility.
+
+This pipeline aligns incentives: transparency → confidence → tighter spreads → higher turnover → richer NAV & fee signals → targeted emissions → sustained liquidity → credible track record → ETF capital inflow.
+
+---
 
 ## 🏁 Hackathon Context & Submission Alignment
 
@@ -13,13 +29,13 @@
 | Doma Integration              | Uses Doma testnet domains,  orderbook & marketplace ingestion via the sdk, oracle-style valuation factors, whitelist / policy hooks, and on‑chain settlement proof paths.                                   |
 | On‑Chain Impact Levers       | High-frequency leaderboard updates, valuation batch triggers, issuance/redemption flows for ETF shares, fee accrual/distribution events, dispute + governance actions.                                        |
 | Differentiators               | Replayable full demo dataset (JSONL), valuation transparency (factors + confidence), ensemble (multi-source) roadmap, anti‑abuse risk flags, deterministic seeded competition enabling instant judge review. |
-| Current Status (Sept 6, 2025) | Phase 9 complete (live-ops, transparency, demo mode). Ensemble layer stub shipped (confidence + chosen_source). Next: finalize narrative & diagrams + expanded ensemble sources.                              |
+| Current Status (Sept 6, 2025) | Phase 9 complete (live-ops, transparency, demo mode). Extended valuation (top_bid + last_sale_median). Next: custody & prize escrow contracts, multi-oracle adapter, basket tokenization.                     |
 
 ### Judging Criteria Mapping
 
 | Criteria                          | Weight | How Addressed                                                                                                                                                                                                                                      |
 | --------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Innovation                        | 40%    | ETF abstraction for domain portfolios, dispute-aware valuation, replayable live-ops manifest, fee & APY economic loop, ensemble valuation roadmap (multi‑source) + risk guardrails.                                                               |
+| Innovation                        | 40%    | ETF abstraction + dispute-aware valuation + deterministic replay + integrity chain + ensemble roadmap (multi‑oracle + ML confidence) + execution & risk telemetry.                                                                               |
 | Doma Integration & Onchain Impact | 30%    | Domain valuation & trading events reference Doma tokenized domains; ingestion & orderbook snapshot stubs ready; settlement verification, whitelist/KYC, policy governance, NAV + fee accrual designed for on-chain metrics (tx volume, NAV churn). |
 | Usability                         | 20%    | Next.js dashboard: live leaderboard, valuation panel, ETF NAV/flow charts, replay mode (Sample/Full manifests), compact risk/execution charts, pause & refresh controls. Deterministic seed script = zero-friction spin‑up.                       |
 | Demo Quality                      | 10%    | Full JSONL manifest + toggle, scripted dataset seeding, panels synchronized to replay, EVENTS.md schemas, clear demo path below.                                                                                                                   |
@@ -48,6 +64,28 @@
 | On-Chain Settlement Proof Path | ✅     | Competition settlement contract + backend verification endpoints      |
 
 > License: MIT license included (see `LICENSE`).
+
+---
+
+## 📚 Table of Contents
+
+1. Executive Summary
+2. Hackathon Alignment
+3. Quick Start
+4. Architecture Layering
+5. Valuation Methodology & Ensemble Roadmap
+6. Competition Lifecycle & Data Flows
+7. Integrity & Audit Chain
+8. Economic & Incentive Loop
+9. Policy / KYC / Governance & Risk Controls
+10. Events & API Surface
+11. Replay & Demo Guide
+12. Roadmap (Phase Matrix)
+13. Deployment & Production Notes
+14. Testing & Performance
+15. Contributing / License / Support
+
+---
 
 ---
 
@@ -132,7 +170,46 @@ npx hardhat run scripts/deploy.ts --network hardhat
 npx hardhat run scripts/deploy.ts --network doma_testnet
 ```
 
-## 🏗️ Architecture
+## 🏗️ Architecture (Layered)
+
+| Layer | Responsibility | Key Artifacts |
+|-------|----------------|---------------|
+| UI / App | User workflows, telemetry visualization, replay, optimistic UX | Next.js app, React Query hooks (`useOrderbookActions`, valuation panel, risk charts) |
+| API Core | Competition lifecycle, valuation batches, ETF NAV, rewards, risk metrics, policy, KYC | FastAPI routers & services (`valuation_service`, `metrics_service`, `audit_service`) |
+| Persistence | Durable state & analytical factors | PostgreSQL (domains, trades, listings/offers, valuations, audit_events, merkle_snapshots, governance, competitions, escrow) |
+| Integrity | Tamper evidence & cryptographic summarization | Rolling SHA-256 integrity hash + periodic Merkle snapshots + (stub) signature |
+| Valuation Oracle | Multi-factor fair value & dispute dampening | Heuristic blend + orderbook mid + top bid + last sale median + decay + ensemble stub |
+| Incentives | Emissions + retroactive KYC claim gating | Epoch reward processing, gated reward claim endpoints |
+| Contracts (current) | Competition / oracle scaffolding | Solidity stubs (Hardhat) |
+| Contracts (next) | Custody, prize escrow, basket tokenization, multi-oracle commit | Roadmap phases 10–12 |
+
+### Runtime Flow Snapshot
+Listings/offers & trades → factor snapshots → valuation batch → valuation_update & leaderboard_delta → NAV recompute & fee accrual → audit events → Merkle snapshot → emissions distribution (risk & performance aware) → replay / export.
+
+## 🔍 Valuation Methodology & Roadmap
+
+| Component | Status | Role |
+|-----------|--------|------|
+| Trade VWAP (recent window) | ✅ | Primary liquidity anchor when sample threshold met |
+| Orderbook Mid (median of medians) | ✅ | Structural price reference |
+| Top Bid Soft Floor | ✅ | Avoids drift far below active liquidity intent |
+| Last Sale Median | ✅ | Robust executed price central tendency |
+| Decayed Prior Anchor | ✅ | Temporal smoothing & fallback | 
+| Dispute Clamp | ✅ | Stability during contested shifts |
+| Ensemble External Oracle Stub | ✅ | Multi-source convergence scaffold |
+| ML Adaptive Regressor (variance aware) | ✅ | Smoothing & dynamic confidence | 
+| Multi-Oracle Aggregator | 🚧 | Weighted consensus + staleness penalties |
+| Basket / Derived Asset NAV Inputs | Planned | Extend factor graph to synthetic instruments |
+
+Confidence heuristic currently = inverse relative dispersion (heuristic vs stub vs ML). Will expand with real oracle adapters + quorum weighting + penalty for stale feeds.
+
+Soft Floor Logic: if final < 70% of top bid → blended lift midpoint between final and 70% * top bid (caps undervaluation without fully overriding fundamentals).
+
+Dispute Handling: OPEN dispute with votes ≥ threshold clamps valuation to prior (prevents manipulation cascades into NAV & rewards).
+
+Integrity of Factors: Each valuation insertion records raw component values & weights for audit & reproducibility.
+
+---
 
 ### Frontend (Next.js + TypeScript)
 
@@ -183,24 +260,26 @@ npx hardhat run scripts/deploy.ts --network doma_testnet
 
 ## 📚 Docs Index
 
-| Topic                    | Path                                     | Notes                                    |
-| ------------------------ | ---------------------------------------- | ---------------------------------------- |
-| Track 2 Summary          | `docs/hackathon-track2-summary.md`     | Condensed judging alignment              |
-| Demo Playbook            | `docs/demo-playbook.md`                | Narrated 3–5 min script & flow          |
-| Architecture Overview    | `docs/architecture-overview.md`        | Diagram placeholder (to finalize)        |
-| Secret Handling          | `docs/secret-handling.md`              | Dev vs prod guidance & rotation roadmap  |
-| Performance Report       | `docs/perf-report.md`                  | Populate with p50/p95 using scripts      |
-| Ensemble Sample          | `docs/samples/ensemble-sample.json`    | Chosen source + confidence example       |
-| Valuation ADR           | `docs/adr/adr-001-valuation-heuristic.md`  | Accepted (heuristic + ensemble stub) |
-| Incentives ADR          | `docs/adr/adr-002-incentives-emissions.md` | Accepted (composite metrics)         |
-| Events Schema            | `EVENTS.md`                            | Completed (v1.1 valuation + placeholders) |
+| Topic                 | Path                                         | Notes                                     |
+| --------------------- | -------------------------------------------- | ----------------------------------------- |
+| Track 2 Summary       | `docs/hackathon-track2-summary.md`         | Condensed judging alignment               |
+| Demo Playbook         | `docs/demo-playbook.md`                    | Narrated 3–5 min script & flow           |
+| Architecture Overview | `docs/architecture-overview.md`            | Diagram placeholder (to finalize)         |
+| Secret Handling       | `docs/secret-handling.md`                  | Dev vs prod guidance & rotation roadmap   |
+| Performance Report    | `docs/perf-report.md`                      | Populate with p50/p95 using scripts       |
+| Ensemble Sample       | `docs/samples/ensemble-sample.json`        | Chosen source + confidence example        |
+| Valuation ADR         | `docs/adr/adr-001-valuation-heuristic.md`  | Accepted (heuristic + ensemble stub)      |
+| Incentives ADR        | `docs/adr/adr-002-incentives-emissions.md` | Accepted (composite metrics)              |
+| Events Schema         | `EVENTS.md`                                | Completed (v1.1 valuation + placeholders) |
 
 > Pending before submission: diagrams, ADRs, EVENTS.md, populated perf metrics.
 
 ## 📈 Economic Narrative & Yield Flow
 
 The system creates a self-reinforcing loop: transparent valuations → tighter spreads → higher trade velocity → richer NAV signal → credible ETF share issuance/redemption → fee accrual → emissions + rewards recycling into further activity.
+
 ### Flow Diagram (Concept)
+
 ```
  User Trades ↔ Listings/Offers -----> Trade Events -----> Competition Engine (score updates)
       |                                    |                     |
@@ -221,13 +300,14 @@ The system creates a self-reinforcing loop: transparent valuations → tighter s
 ```
 
 ### Value Drivers
-| Driver | Mechanism | Outcome |
-|--------|-----------|---------|
-| Transparency | Factor + confidence panel | Trust & fair pricing perception |
-| Replay Dataset | Instant walkthrough & analytics reproducibility | Faster onboarding |
-| ETF Wrapper | Aggregates domain set into single NAV share | Attracts passive liquidity |
-| Emissions | Rewards diversified, performant activity | Sustains early liquidity |
-| Settlement Provenance | Cryptographic audit chain + Merkle roots | Verifiable integrity |
+
+| Driver                | Mechanism                                       | Outcome                         |
+| --------------------- | ----------------------------------------------- | ------------------------------- |
+| Transparency          | Factor + confidence panel                       | Trust & fair pricing perception |
+| Replay Dataset        | Instant walkthrough & analytics reproducibility | Faster onboarding               |
+| ETF Wrapper           | Aggregates domain set into single NAV share     | Attracts passive liquidity      |
+| Emissions             | Rewards diversified, performant activity        | Sustains early liquidity        |
+| Settlement Provenance | Cryptographic audit chain + Merkle roots        | Verifiable integrity            |
 
 ## 🗺️ Architecture Diagram (Mermaid)
 
@@ -300,10 +380,8 @@ flowchart LR
    class VEVT,LEAD,FEES,RF ws
 ```
 
+## 🔑 Key Features
 
-## �🔑 Key Features
-## 🔑 Key Features
-## 🔑 Key Features
 - **Wallet Authentication**: EIP-191 signature-based auth
 - **Competition Management**: Create, join, and track competitions
 - **Portfolio Tracking**: Real-time portfolio valuation
@@ -342,16 +420,6 @@ Competitive domain trading drives order flow; ETF abstraction & valuation fairne
 - ETF issuance/redemption & fee events (secondary transaction vector)
 - Replay / synthetic dataset (accelerates user onboarding & judge verification)
 - Risk & execution quality metrics (surface trading performance insights -> retention)
-
-Planned enhancements before deadline (light-weight scope):
-
-1. Expand ensemble with external oracle stub separation + simple ML regressor placeholder (documented outputs).
-2. Add architecture & economic narrative diagrams (`docs/architecture-overview.md`).
-3. Record 3–5 min screencast following `docs/demo-playbook.md`.
-4. Add MIT LICENSE.
-5. Provide stress / p95 latency mini-report (scripted local run).
-
----
 
 ## � Testing
 

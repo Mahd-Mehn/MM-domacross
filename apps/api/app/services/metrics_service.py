@@ -8,11 +8,26 @@ from app.models.database import (
     Participant, PortfolioValueHistory, CompetitionReward, Trade, Domain, ParticipantHolding
 )
 from app.config import settings
+from app import broadcast as _bc
 
 _LEADERBOARD_CACHE: dict[int, tuple[datetime, list[dict]]] = {}
 
 def invalidate_leaderboard_cache(competition_id: int):
     _LEADERBOARD_CACHE.pop(competition_id, None)
+
+def get_ws_latency_snapshot():
+    samples = list(getattr(_bc, '_ws_latency_samples', []))
+    if not samples:
+        return {'count': 0, 'p50': 0, 'p95': 0, 'avg': 0}
+    samples_sorted = sorted(samples)
+    n = len(samples_sorted)
+    def pct(p: float):
+        if n == 0:
+            return 0
+        idx = int(p * (n-1))
+        return samples_sorted[idx]
+    avg = sum(samples_sorted)/n
+    return {'count': n, 'p50': pct(0.50), 'p95': pct(0.95), 'avg': avg}
 
 def _compute_returns(values: list[tuple[datetime, Decimal]]):
     returns: list[float] = []

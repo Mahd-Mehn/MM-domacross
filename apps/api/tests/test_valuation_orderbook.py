@@ -59,6 +59,35 @@ def test_valuation_with_orderbook_mid(db, domain):
     assert abs(float(mid) - 107.5) < 1
 
 
+def test_valuation_last_sale_and_top_bid_integration(db, domain):
+    # Create trades to derive last_sale_median (prices: 90, 110, 130 => median 110)
+    from app.models.database import Trade, Participant, User, Competition
+    # Minimal user/participant for not-null foreign key
+    u = User(wallet_address='0xvaluser000000000000000000000000000001')
+    db.add(u); db.flush()
+    now = datetime.now(timezone.utc)
+    comp = Competition(contract_address='0xcomp000000000000000000000000000000000001', chain_id=1, name='TestComp', description='x', start_time=now, end_time=now+timedelta(hours=1))
+    db.add(comp); db.flush()
+    participant = Participant(user_id=u.id, competition_id=comp.id, portfolio_value=Decimal('0'))
+    db.add(participant); db.flush()
+    for p in [90, 110, 130]:
+        db.add(Trade(domain_token_id=domain.name, domain_token_address='0xdom000000000000000000000000000000000001', trade_type='BUY', tx_hash=f'h{p}', price=Decimal(p), timestamp=now, participant_id=participant.id))
+    # Orderbook bids (to set top_bid = 150) and asks (for mid)
+    db.add(OrderbookSnapshot(domain_name=domain.name, side='BUY', price=Decimal('140'), size=1))
+    db.add(OrderbookSnapshot(domain_name=domain.name, side='BUY', price=Decimal('150'), size=1))
+    db.add(OrderbookSnapshot(domain_name=domain.name, side='SELL', price=Decimal('170'), size=1))
+    db.add(OrderbookSnapshot(domain_name=domain.name, side='SELL', price=Decimal('180'), size=1))
+    db.commit()
+    r = client.post('/api/v1/valuation/batch', json={"domains":[domain.name]})
+    assert r.status_code == 200
+    data = r.json()['results'][0]
+    factors = data['factors']
+    assert factors['last_sale_median'] == '110'
+    assert factors['top_bid'] == '150'
+    # Ensure valuation not below 70% of top_bid after soft floor (70% of 150 = 105)
+    assert Decimal(data['value']) >= Decimal('105')
+
+
 def test_valuation_override(db, domain, user, monkeypatch):
     # Set admin wallet
     from app import config as cfg

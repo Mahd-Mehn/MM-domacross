@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     reconciliation_interval_seconds: int = 600
     listing_ttl_days: int = 30
     domain_stale_seconds: int = 3600
+    external_oracle_max_age_seconds: int = 600  # staleness threshold for external oracle price adoption
     backfill_fallback_max_age_seconds: int = 3600  # max age (s) to apply tx-hash fallback for external_order_id
     # Metrics config
     metrics_returns_window_minutes: int = 1440

@@ -23,6 +23,9 @@ def set_connection_filter(ws: "WebSocket", events: list[str] | None):
     else:
         connection_filters.pop(id(ws), None)
 
+_ws_latency_samples: list[float] = []  # rolling samples (seconds)
+_WS_LATENCY_MAX = 500
+
 async def broadcast_event(payload: dict):
     """Broadcast a JSON-serializable event to all connections honoring filters & scopes.
 
@@ -38,6 +41,7 @@ async def broadcast_event(payload: dict):
     comp_id = payload.get("competition_id")
     dead: list["WebSocket"] = []
     data = json.dumps(payload)
+    start_send = time.time()
     for ws in list(websocket_connections):
         try:
             filt = connection_filters.get(id(ws))
@@ -57,6 +61,11 @@ async def broadcast_event(payload: dict):
             connection_comp_scopes.pop(id(d), None)
         except ValueError:
             pass
+    # Record simple batch latency (time to iterate & schedule sends)
+    elapsed = time.time() - start_send
+    _ws_latency_samples.append(elapsed)
+    if len(_ws_latency_samples) > _WS_LATENCY_MAX:
+        _ws_latency_samples.pop(0)
 
 def get_sync_broadcast() -> Optional[Callable[[dict], None]]:
     try:
@@ -75,5 +84,5 @@ def get_sync_broadcast() -> Optional[Callable[[dict], None]]:
     return sync_send
 
 __all__ = [
-    'websocket_connections', 'set_connection_filter', 'broadcast_event', 'get_sync_broadcast', 'set_connection_scope', 'connection_comp_scopes'
+    'websocket_connections', 'set_connection_filter', 'broadcast_event', 'get_sync_broadcast', 'set_connection_scope', 'connection_comp_scopes', '_ws_latency_samples'
 ]

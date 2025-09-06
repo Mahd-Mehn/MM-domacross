@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries } from '@tanstack/react-query';
 import { apiJson, authHeader } from '../lib/api';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line } from 'recharts';
 import ChartLegend from './ChartLegend';
@@ -25,21 +25,25 @@ export function RiskSlippageCharts({ leaderboard = [] }: Props){
   const [paused,setPaused] = useState<boolean>(()=>{ if(typeof window==='undefined') return false; try { return localStorage.getItem('risk_charts_paused')==='1'; } catch { return false; } });
   const top = Array.isArray(leaderboard)? leaderboard.slice(0, compact?3:5) : [];
 
-  // Fetch risk profiles & execution quality in parallel (react-query per participant)
-  const riskQueries = top.map(lb => useQuery({
-    queryKey:['risk-profile', competitionId, lb.user_id, riskRefreshMs, paused],
-    queryFn: ()=> apiJson<RiskProfile>(`/api/v1/competitions/${competitionId}/participants/${lb.user_id}/risk-profile`, { headers: authHeader() }),
-    enabled: !!competitionId,
-    refetchInterval: paused ? false : riskRefreshMs,
-    staleTime: (paused? Infinity : riskRefreshMs/2)
-  }));
-  const execQueries = top.map(lb => useQuery({
-    queryKey:['exec-quality', competitionId, lb.user_id, execRefreshMs, paused],
-    queryFn: ()=> apiJson<ExecutionQuality>(`/api/v1/competitions/${competitionId}/participants/${lb.user_id}/execution-quality`, { headers: authHeader() }),
-    enabled: !!competitionId,
-    refetchInterval: paused ? false : execRefreshMs,
-    staleTime: (paused? Infinity : execRefreshMs/2)
-  }));
+  // Build query definitions once per render; single hook invocation prevents hook order violations
+  const riskQueries = useQueries({
+    queries: top.map(lb => ({
+      queryKey:['risk-profile', competitionId, lb.user_id, riskRefreshMs],
+      queryFn: ()=> apiJson<RiskProfile>(`/api/v1/competitions/${competitionId}/participants/${lb.user_id}/risk-profile`, { headers: authHeader() }),
+      enabled: !!competitionId,
+      refetchInterval: paused ? false : riskRefreshMs,
+      staleTime: (paused? Infinity : riskRefreshMs/2)
+    }))
+  });
+  const execQueries = useQueries({
+    queries: top.map(lb => ({
+      queryKey:['exec-quality', competitionId, lb.user_id, execRefreshMs],
+      queryFn: ()=> apiJson<ExecutionQuality>(`/api/v1/competitions/${competitionId}/participants/${lb.user_id}/execution-quality`, { headers: authHeader() }),
+      enabled: !!competitionId,
+      refetchInterval: paused ? false : execRefreshMs,
+      staleTime: (paused? Infinity : execRefreshMs/2)
+    }))
+  });
 
   const loading = riskQueries.some(q=>q.isLoading) || execQueries.some(q=>q.isLoading);
   const execLoading = execQueries.some(q=> q.isLoading);

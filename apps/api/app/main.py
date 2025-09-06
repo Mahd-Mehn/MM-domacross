@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed
+from .routers import prize_escrow, baskets, governance
 try:
     from app.services.incentive_service import incentive_service  # type: ignore
 except Exception:  # pragma: no cover
@@ -335,6 +336,9 @@ app.include_router(settlement.router, prefix="/api/v1")
 app.include_router(incentives.router, prefix="/api/v1")
 app.include_router(policy.router, prefix="/api/v1")
 app.include_router(orderfeed.router)
+app.include_router(prize_escrow.router, prefix="/api/v1")
+app.include_router(baskets.router, prefix="/api/v1")
+app.include_router(governance.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")
@@ -459,6 +463,16 @@ def metrics():
             pass
     if total_events_processed is not None:
         lines.append(f"doma_events_processed_total {total_events_processed}")
+    # Websocket latency snapshot
+    try:
+        from app.services.metrics_service import get_ws_latency_snapshot
+        ws_stats = get_ws_latency_snapshot()
+        lines.append(f"ws_broadcast_latency_seconds_p50 {ws_stats['p50']}")
+        lines.append(f"ws_broadcast_latency_seconds_p95 {ws_stats['p95']}")
+        lines.append(f"ws_broadcast_latency_seconds_avg {ws_stats['avg']}")
+        lines.append(f"ws_broadcast_latency_samples {ws_stats['count']}")
+    except Exception:
+        pass
     # Orderbook & valuation counters
     try:
         from app.services.orderbook_snapshot_service import orderbook_snapshot_service as oss
