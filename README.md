@@ -31,6 +31,88 @@ This pipeline aligns incentives: transparency → confidence → tighter spreads
 | Differentiators               | Replayable full demo dataset (JSONL), valuation transparency (factors + confidence), ensemble (multi-source) roadmap, anti‑abuse risk flags, deterministic seeded competition enabling instant judge review. |
 | Current Status (Sept 6, 2025) | Phase 9 complete (live-ops, transparency, demo mode). Extended valuation (top_bid + last_sale_median). Next: custody & prize escrow contracts, multi-oracle adapter, basket tokenization.                     |
 
+### 🧾 Hackathon Submission Capsule (Track 2 Compliance)
+
+> This capsule gives judges a single, copy/paste friendly summary of required submission artifacts and Track 2 alignment. Fill any `TODO` items before final submission.
+
+| Requirement / Element | Status | Location / Link / Notes |
+| --------------------- | ------ | ----------------------- |
+| Track Selected | ✅ | Track 2 – Trading Competitions & Portfolio Tools |
+| Public GitHub Repo | ✅ | This repository (MIT licensed) |
+| Doma Protocol Usage (explicit) | ✅ | See “Doma Testnet Integration (Hackathon Scope)” below |
+| Competition & Leaderboard Implementation | ✅ | Live: backend + websocket events (`leaderboard_delta`) |
+| On‑Chain / Contract Layer | 🚧 | Stub contracts deployed (list in Contracts Address Table) – custody & escrow next |
+| Valuation Heuristics / Oracles | ✅ (heuristics), 🚧 (multi-oracle) | Factors: VWAP, orderbook_mid, top_bid, last_sale_median, decay; external oracle adapter planned Phase 10 |
+| Whitelisted Operations / Policy Hooks | ✅ (API / policy endpoints) | `policy/*` endpoints + whitelist gating logic (contracts whitelist pending) |
+| Derived / Basket / ETF Mechanic | ✅ (ETF service scaffold), 🚧 (on-chain basket token) | NAV computation + fee events; basket tokenization roadmap Phase 11 |
+| Prize Escrow & Automated Distribution | 🚧 | Manual/stub flow; escrow contract in roadmap Phase 10 |
+| Promotion / Strategy Vault Path | ✅ (event & stub design) | Winner promotion hook (StrategyVault stub) planned post-settlement |
+| Replay & Deterministic Dataset | ✅ | `seed_demo_dataset` + `demo-manifest.*.jsonl` |
+| Integrity / Auditability | ✅ | Rolling hash + Merkle snapshots + audit export endpoints |
+| Risk / Anti‑Abuse Controls | ✅ (backend) | Wash / rapid flip / self-cross / circular pattern flags |
+| KYC / Governance Hooks | ✅ (API) | Policy & KYC endpoints; gating of reward claims |
+| Demo Video (Recorded) | 🚧 (TODO) | Placeholder: `https://youtu.be/VIDEO_ID_TODO` |
+| Live / Test Deployment (Optional) | 🚧 | Placeholder: `https://demo.domacross.xyz` |
+| Project X/Twitter Account | 🚧 (TODO) | Placeholder: `https://twitter.com/DomaCrossApp` |
+| Contract Addresses Table | 🚧 | Add table below before submission |
+| Metrics Snapshot (tx count, participants) | 🚧 | Provide quick script outputs (see Metrics Collection section) |
+| Ambassador Challenges (Bonus) | Optional | Note any completed in PR description if done |
+
+#### Contract Addresses (Testnet – Fill Prior to Submission)
+
+| Contract | Address | Notes |
+| -------- | ------- | ----- |
+| CompetitionFactory | `0x________` | Deploy via Hardhat script; emits CompetitionCreated |
+| Competition (example) | `0x________` | Created instance for demo (ID 1) |
+| ValuationOracle (stub) | `0x________` | Emits factor events (planned) |
+| PrizeEscrow (planned) | `—` | To deploy Phase 10 |
+| BasketToken / NAV (planned) | `—` | Snapshot or dynamic basket token |
+
+> Keep this table minimal & accurate; remove planned rows if not deployed.
+
+#### Doma Testnet Integration (Hackathon Scope vs Roadmap)
+
+| Aspect | Implemented Now | Roadmap Extension |
+| ------ | ---------------- | ----------------- |
+| Domain Entity Ingestion | SDK / API stubs + local dataset | Live streaming from Doma marketplace events |
+| Valuation Factors | Heuristic multi-factor (see list) | External oracle weighting + ML confidence refinement |
+| Competition Lifecycle | Backend state + events | Fully on-chain custody / settlement proofs |
+| Whitelist & Policy | API enforced | Contract-level operation allow-list + timelock governance |
+| Derived Instruments | NAV service scaffold | Basket token mint/redeem + secondary liquidity pool |
+| Prize Flow | Manual claim stub | Automated escrow contract + PrizeClaimed event |
+
+#### Metrics Collection (Populate Before Final Submission)
+
+Run after a realistic 5–10 minute session (scripted or replay) to produce transparent numbers:
+
+```bash
+# Count total trades (fills)
+psql $DATABASE_URL -c "select count(*) from trades;"
+
+# Unique active participants
+psql $DATABASE_URL -c "select count(distinct wallet_address) from competition_participants;"
+
+# Valuation snapshots produced
+psql $DATABASE_URL -c "select count(*) from valuations;"
+
+# Current leaderboard (top 5)
+psql $DATABASE_URL -c "select wallet_address, score from leaderboard_entries order by score desc limit 5;"
+```
+
+Paste the outputs into a short “Metrics Snapshot” subsection or attach as an image in the demo video description.
+
+#### Final Submission TODOs Checklist
+
+- [ ] Insert final demo video URL
+- [ ] Insert Twitter handle & ensure at least 1 pinned teaser tweet
+- [ ] Populate contract addresses table
+- [ ] Capture metrics snapshot & insert outputs
+- [ ] (Optional) Deploy temporary public demo & add URL
+- [ ] Verify LICENSE & README unchanged except for completion updates
+- [ ] Run replay script successfully (document exit code 0)
+
+---
+
 ### Judging Criteria Mapping
 
 | Criteria                          | Weight | How Addressed                                                                                                                                                                                                                                      |
