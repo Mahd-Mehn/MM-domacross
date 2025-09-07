@@ -139,17 +139,22 @@ def recompute_nav(etf_id: int, db: Session = Depends(get_db), user: UserModel = 
     return etf
 
 @router.post('/etfs/{etf_id}/issue', response_model=DomainETFShare)
-def issue_shares(etf_id: int, payload: ETFIssueRedeem, cash_paid: Decimal | None = None, lock_period_seconds: int | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+def issue_shares(etf_id: int, payload: ETFIssueRedeem, target_user_id: int | None = None, cash_paid: Decimal | None = None, lock_period_seconds: int | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    """Owner-only primary issuance. Optionally specify target_user_id (defaults to owner)."""
     etf = db.query(DomainETFModel).filter(DomainETFModel.id == etf_id).first()
     if not etf: raise HTTPException(status_code=404, detail='ETF not found')
     if etf.owner_user_id != user.id: raise HTTPException(status_code=403, detail='Not owner')
     if payload.shares <= 0: raise HTTPException(status_code=400, detail='Shares must be positive')
+    # Resolve recipient
+    recipient_id = target_user_id or user.id
+    # Validate recipient exists
+    if target_user_id:
+        rec = db.query(UserModel).filter(UserModel.id == target_user_id).first()
+        if not rec: raise HTTPException(status_code=400, detail='target_user_id invalid')
     if etf.creation_unit_size:
-        # enforce integer multiple of creation unit
         unit = Decimal(etf.creation_unit_size)
         if (payload.shares / unit) % 1 != 0:
             raise HTTPException(status_code=400, detail='Shares must be multiple of creation unit size')
-    # Use latest nav or recompute if stale (>10m)
     if not etf.nav_last or not etf.nav_updated_at or (datetime.now(timezone.utc) - etf.nav_updated_at).total_seconds() > 600:
         etf.nav_last = _compute_nav(db, etf)
         etf.nav_updated_at = datetime.now(timezone.utc)
@@ -157,33 +162,69 @@ def issue_shares(etf_id: int, payload: ETFIssueRedeem, cash_paid: Decimal | None
     required_cash = (nav_per_share * payload.shares).quantize(Decimal('0.00000001'))
     if cash_paid is None:
         cash_paid = required_cash
-    # Basic validation representing primary market subscription at NAV
-    if cash_paid < required_cash * Decimal('0.995') or cash_paid > required_cash * Decimal('1.005'):
-        raise HTTPException(status_code=400, detail='Cash must be within 50bps of NAV * shares')
-    holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()
+    holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == recipient_id).first()
     lock_until = None
     if lock_period_seconds and lock_period_seconds > 0:
         lock_until = datetime.now(timezone.utc) + timedelta(seconds=lock_period_seconds)
     if not holding:
-        holding = DomainETFShareModel(etf_id=etf_id, user_id=user.id, shares=payload.shares, lock_until=lock_until)
+        holding = DomainETFShareModel(etf_id=etf_id, user_id=recipient_id, shares=payload.shares, lock_until=lock_until)
         db.add(holding)
     else:
         holding.shares = holding.shares + payload.shares  # type: ignore
-        if lock_until and (holding.lock_until is None or lock_until > holding.lock_until):  # extend lock if longer
+        if lock_until and (holding.lock_until is None or lock_until > holding.lock_until):
             holding.lock_until = lock_until
     etf.total_shares = (etf.total_shares or Decimal(0)) + payload.shares  # type: ignore
-    # Record flow
     from app.models.database import DomainETFShareFlow as Flow
-    flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='ISSUE', shares=payload.shares, cash_value=cash_paid, nav_per_share=nav_per_share)
+    flow = Flow(etf_id=etf.id, user_id=recipient_id, flow_type='ISSUE', shares=payload.shares, cash_value=cash_paid, nav_per_share=nav_per_share)
     db.add(flow)
-    # Apply creation fee
     if etf.creation_fee_bps:
         fee = (required_cash * Decimal(etf.creation_fee_bps) / Decimal(10000)).quantize(Decimal('0.00000001'))
         if fee > 0:
             etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
-            db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='ISSUE_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares)}))
+            db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='ISSUE_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares), 'recipient': recipient_id}))
     db.flush()
-    record_audit_event(db, event_type='ISSUE', entity_type='ETF_SHARE_FLOW', entity_id=flow.id, user_id=user.id, payload={'etf_id': etf.id, 'shares': str(payload.shares), 'cash_value': str(cash_paid), 'order_ids': flow.settlement_order_ids})
+    record_audit_event(db, event_type='ISSUE', entity_type='ETF_SHARE_FLOW', entity_id=flow.id, user_id=user.id, payload={'etf_id': etf.id, 'recipient': recipient_id, 'shares': str(payload.shares), 'cash_value': str(cash_paid)})
+    db.commit()
+    db.refresh(holding)
+    return holding
+
+@router.post('/etfs/{etf_id}/buy', response_model=DomainETFShare)
+def buy_shares(etf_id: int, payload: ETFIssueRedeem, cash_paid: Decimal | None = None, db: Session = Depends(get_db), user: UserModel = Depends(get_current_user)):
+    """Public buy-in (non-owner). Increases total_shares and user holding, records BUY flow. Owner may also use but ISSUE is preferred for administrative allocations."""
+    etf = db.query(DomainETFModel).filter(DomainETFModel.id == etf_id).first()
+    if not etf: raise HTTPException(status_code=404, detail='ETF not found')
+    if payload.shares <= 0: raise HTTPException(status_code=400, detail='Shares must be positive')
+    # Non-owners only restriction (owner should use issue) – allow override if needed by removing next block
+    if etf.owner_user_id == user.id:
+        # Soft guard; allow but log
+        pass
+    if not etf.nav_last or not etf.nav_updated_at or (datetime.now(timezone.utc) - etf.nav_updated_at).total_seconds() > 600:
+        etf.nav_last = _compute_nav(db, etf)
+        etf.nav_updated_at = datetime.now(timezone.utc)
+    nav_per_share = etf.nav_last or Decimal(0)
+    required_cash = (nav_per_share * payload.shares).quantize(Decimal('0.00000001'))
+    if cash_paid is None:
+        cash_paid = required_cash
+    if cash_paid < required_cash * Decimal('0.995') or cash_paid > required_cash * Decimal('1.005'):
+        raise HTTPException(status_code=400, detail='Cash must be within 50bps of NAV * shares')
+    holding = db.query(DomainETFShareModel).filter(DomainETFShareModel.etf_id == etf_id, DomainETFShareModel.user_id == user.id).first()
+    if not holding:
+        holding = DomainETFShareModel(etf_id=etf_id, user_id=user.id, shares=payload.shares)
+        db.add(holding)
+    else:
+        holding.shares = holding.shares + payload.shares  # type: ignore
+    etf.total_shares = (etf.total_shares or Decimal(0)) + payload.shares  # type: ignore
+    from app.models.database import DomainETFShareFlow as Flow
+    flow = Flow(etf_id=etf.id, user_id=user.id, flow_type='BUY', shares=payload.shares, cash_value=cash_paid, nav_per_share=nav_per_share)
+    db.add(flow)
+    # Creation fee also applies to public buy-in (treat as primary subscription)
+    if etf.creation_fee_bps:
+        fee = (required_cash * Decimal(etf.creation_fee_bps) / Decimal(10000)).quantize(Decimal('0.00000001'))
+        if fee > 0:
+            etf.fee_accrued = (etf.fee_accrued or Decimal(0)) + fee
+            db.add(DomainETFFeeEventModel(etf_id=etf.id, event_type='ISSUE_FEE', amount=fee, nav_per_share_snapshot=nav_per_share, meta={'shares': str(payload.shares), 'flow':'BUY'}))
+    db.flush()
+    record_audit_event(db, event_type='BUY', entity_type='ETF_SHARE_FLOW', entity_id=flow.id, user_id=user.id, payload={'etf_id': etf.id, 'shares': str(payload.shares), 'cash_value': str(cash_paid)})
     db.commit()
     db.refresh(holding)
     return holding
@@ -454,10 +495,16 @@ def nav_history(etf_id: int, limit: int = 500, interval: str | None = None, star
         q = q.filter(Hist.snapshot_time >= start)
     if end:
         q = q.filter(Hist.snapshot_time <= end)
+
+    rows: list[Hist]
+    # If no explicit range (start/end) we apply a descending limit then reverse to preserve
+    # chronological order, avoiding a second order_by after LIMIT (SQLAlchemy restriction).
+    if not start and not end:
+        limited_q = q.order_by(Hist.snapshot_time.desc()).limit(min(limit, 2000))
+        desc_rows = limited_q.all()
+        rows = list(reversed(desc_rows))
     else:
-        if start is None:  # only enforce limit when no explicit range
-            q = q.order_by(Hist.snapshot_time.desc()).limit(min(limit, 2000))
-    rows = q.order_by(Hist.snapshot_time.asc()).all()
+        rows = q.order_by(Hist.snapshot_time.asc()).all()
     if not interval or interval.lower() == 'raw':
         return [ { 't': r.snapshot_time.isoformat(), 'nav': str(r.nav_per_share) } for r in rows ]
     interval_map = { '1m':60, '5m':300, '1h':3600, '1d':86400 }

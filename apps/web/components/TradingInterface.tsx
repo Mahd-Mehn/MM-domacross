@@ -153,7 +153,7 @@ export default function TradingInterface({ competitionId, isActive }: TradingInt
   const { isSuccess: txSuccess } = useTransactionConfirmation(marketplaceHash);
 
   // Mock data for demonstration - in production, this would come from the smart contracts
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai';
   const refreshListings = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/v1/listings`);

@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
 interface DisputeBannerProps {
-	apiBase?: string; // e.g. http://localhost:8000
+	apiBase?: string; // e.g. https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai
 	domain: string;
 	className?: string;
 }
@@ -16,7 +16,7 @@ type DisputeState = {
 	finalStatus?: string;
 };
 
-export const DisputeBanner: React.FC<DisputeBannerProps> = ({ apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000', domain, className }) => {
+export const DisputeBanner: React.FC<DisputeBannerProps> = ({ apiBase = process.env.NEXT_PUBLIC_API_BASE || 'https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai', domain, className }) => {
 	const wsUrl = useMemo(() => apiBase.replace(/^http/, 'ws') + '/ws', [apiBase]);
 	const { events, subscribe } = useWebSocket(wsUrl, { events: ['dispute_quorum','dispute_resolved'] });
 	const [state, setState] = useState<DisputeState>({ status: 'none' });

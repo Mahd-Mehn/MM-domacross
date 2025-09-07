@@ -22,7 +22,11 @@ from app.models.database import (
     DomainETFShareFlow,
     DomainETFNavHistory,
     DomainETFFeeEvent,
+    DomainBasketRecord,
+    BasketTokenizationRecord,
 )
+
+TARGET_WALLET = "0x364d11a2c51F235063b7DB5b60957aE2ea91ACEE".lower()
 
 def seed_etfs(db: Session, users, competitions):
     """Idempotently seed demo ETFs, positions, shares & nav history.
@@ -81,6 +85,28 @@ def seed_etfs(db: Session, users, competitions):
         nav_updated_at=now,
     )
 
+    # Additional ETF for target wallet (if user exists / added later)
+    target_user = db.query(User).filter(User.wallet_address == TARGET_WALLET).first()
+    etf_target = None
+    if target_user:
+        etf_target, created_target = get_or_create_etf(
+            "TWAL",  # symbol kept short; adjust if collides
+            owner_user_id=target_user.id,
+            competition_id=None,
+            name="Target Wallet Growth Fund",
+            description="Auto-seeded ETF for showcase wallet",
+            management_fee_bps=180,
+            performance_fee_bps=600,
+            nav_last=Decimal("1.00"),
+            nav_updated_at=now,
+        )
+        if created_target:
+            # simple equal weights of first 4 domains
+            for domain_name, _t in domain_names[:4]:
+                db.add(DomainETFPosition(etf_id=etf_target.id, domain_name=domain_name, weight_bps=2500))
+            db.flush()
+
+
     # Positions only if freshly created (avoid duplicate unique constraint)
     if created1:
         for domain_name, w in [("alpha.eth",2500),("beta.eth",2000),("gamma.eth",2000),("delta.eth",1500),("omega.eth",2000)]:
@@ -114,6 +140,31 @@ def seed_etfs(db: Session, users, competitions):
         issued.append(issue_if_absent(etf2, users[1], Decimal("120"), Decimal("1.00")))
     if len(users) > 2:
         issued.append(issue_if_absent(etf2, users[2], Decimal("80"), Decimal("1.00")))
+    if target_user and etf_target:
+        issue_if_absent(etf_target, target_user, Decimal("200"), Decimal("1.00"))
+
+    # Domain Baskets (create two sample baskets + tokenization for first)
+    existing_baskets = db.query(DomainBasketRecord).count()
+    if existing_baskets < 2:
+        creator = target_user or users[0]
+        basket1 = DomainBasketRecord(
+            creator_user_id=creator.id,
+            domain_names=["alpha.eth","beta.eth","gamma.eth"],
+            weights_bps=[4000,3500,2500],
+            total_value=Decimal("350"),
+            token_uri="ipfs://demo-basket-1"
+        )
+        basket2 = DomainBasketRecord(
+            creator_user_id=creator.id,
+            domain_names=["delta.eth","omega.eth"],
+            weights_bps=[6000,4000],
+            total_value=Decimal("250"),
+            token_uri="ipfs://demo-basket-2"
+        )
+        db.add(basket1)
+        db.add(basket2)
+        db.flush()
+        db.add(BasketTokenizationRecord(basket_record_id=basket1.id, onchain_token_contract="0xTokenDemo000000000000000000000000000000", onchain_token_id="1", minted_at=now, nav_at_mint=Decimal("1.00")))
 
     # NAV history only if no history yet
     if not db.query(DomainETFNavHistory).filter_by(etf_id=etf1.id).first():
@@ -132,7 +183,10 @@ def seed_etfs(db: Session, users, competitions):
                     meta={"period_minutes": 20},
                 ))
 
-    return {"PDMF": etf1, "AIDM": etf2}
+    summary = {"PDMF": etf1, "AIDM": etf2}
+    if etf_target:
+        summary["TWAL"] = etf_target
+    return summary
 
 
 def seed_database():
@@ -149,6 +203,7 @@ def seed_database():
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc454e4438f44e", "username": "alice_trader"},
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc454e4438f44f", "username": "bob_domains"},
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc454e4438f450", "username": "charlie_spec"},
+            {"wallet_address": TARGET_WALLET, "username": "manny-uncharted"},
         ]
 
         users = []

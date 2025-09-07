@@ -1,3 +1,4 @@
+import re
 from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -312,14 +313,37 @@ set_connection_filter = getattr(_bc, 'set_connection_filter', lambda *a, **k: No
 broadcast_event = getattr(_bc, 'broadcast_event', lambda *a, **k: None)
 set_connection_scope = getattr(_bc, 'set_connection_scope', lambda *a, **k: None)
 
-# Basic CORS for local dev web app
+# CORS (support localhost + dynamic cloudspaces preview host pattern)
+# A 400 on OPTIONS previously indicated the Origin did not match the static allow_origins list,
+# causing the request to fall through to normal routing (and a dependency returned 400) instead of
+# CORSMiddleware short-circuiting with 200. We switch to a regex that matches ephemeral preview domains.
+_CORS_REGEX = r"^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?|https://3000-[a-z0-9]+\.cloudspaces\.litng\.ai|https?://[0-9]{1,3}(?:\.[0-9]{1,3}){3}(:[0-9]+)?)$"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=_CORS_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Diagnostic middleware (can be removed in production) to log CORS origin mismatches & preflight details
+@app.middleware("http")
+async def _cors_diagnostics(request, call_next):
+    if request.method == "OPTIONS":
+        origin = request.headers.get("origin")
+        acrm = request.headers.get("access-control-request-method")
+        if origin:
+            try:
+                pattern = re.compile(_CORS_REGEX)
+                if not pattern.match(origin):
+                    logger.warning("[cors] preflight origin NOT matched regex: %s", origin)
+                else:
+                    logger.debug("[cors] preflight origin matched: %s method=%s", origin, acrm)
+            except Exception:
+                logger.exception("[cors] regex failure for origin=%s", origin)
+        else:
+            logger.warning("[cors] OPTIONS without Origin header path=%s", request.url.path)
+    return await call_next(request)
 
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/auth")
