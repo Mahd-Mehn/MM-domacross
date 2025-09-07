@@ -34,7 +34,7 @@ export const config = {
 
   // API Configuration
   api: {
-    baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000',
+    baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai',
     timeout: 30000,
   },
 

@@ -13,7 +13,7 @@ import argparse, json, statistics, time, os, sys
 from decimal import Decimal
 import requests
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_URL = os.environ.get("API_URL", "https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai")
 
 
 def valuation_batch(domains: list[str]):

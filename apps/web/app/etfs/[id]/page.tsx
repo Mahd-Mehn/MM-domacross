@@ -31,7 +31,7 @@ async function getOrderbookClient(){
 interface ETF { id:number; name:string; symbol:string; description?:string; nav_last?:string; nav_updated_at?:string; competition_id?:number; total_shares?:string; fee_accrued?:string; management_fee_bps?:number; performance_fee_bps?:number; creation_fee_bps?:number; redemption_fee_bps?:number; }
 interface Position { id:number; domain_name:string; weight_bps:number; }
 interface Holding { etf_id:number; shares:string; lock_until?:string|null }
-interface Flow { id:number; flow_type:'ISSUE'|'REDEEM'; shares:string; cash_value:string; nav_per_share:string; created_at:string }
+interface Flow { id:number; flow_type:'ISSUE'|'REDEEM'|'BUY'; shares:string; cash_value:string; nav_per_share:string; created_at:string }
 interface NavPoint { snapshot_time:string; nav_per_share:string; }
 interface RedemptionIntent { id:number; shares:string; nav_per_share_snapshot:string; created_at:string; executed_at?:string|null; verified_onchain:boolean }
 
@@ -61,8 +61,8 @@ export default function ETFDetailPage(){
   }
   function toggleFeeFilter(t:string){
     setFeeCursor(undefined);
-    setFeeFilterTypes(prev => {
-      const updated = prev.includes(t)? prev.filter(x=>x!==t): [...prev,t];
+    setFeeFilterTypes((prev: string[]) => {
+      const updated = prev.includes(t)? prev.filter((x: string)=>x!==t): [...prev,t];
       pushUrlState({ fee_types: updated.length && updated.length<5 ? updated.join(',') : '' });
       return updated;
     });
@@ -110,6 +110,8 @@ export default function ETFDetailPage(){
     onSuccess: ()=> { intentsQ.refetch(); pushToast('Verification submitted','info'); }
   });
   const [issueOpen, setIssueOpen] = useState(false);
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [buyShares, setBuyShares] = useState('');
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [redeemShares, setRedeemShares] = useState('');
   const [redeemSettlementIds, setRedeemSettlementIds] = useState('');
@@ -123,18 +125,24 @@ export default function ETFDetailPage(){
   const [range, setRange] = useState<'1D'|'7D'|'30D'|'ALL'>('30D');
   const ALL_EVENT_TYPES = ['MANAGEMENT_ACCRUAL','PERFORMANCE_ACCRUAL','ISSUE_FEE','REDEMPTION_FEE','DISTRIBUTION'];
   const [eventTypes, setEventTypes] = useState<string[]>(ALL_EVENT_TYPES);
-  function toggleEventType(t:string){ setEventTypes(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev, t]); }
+  function toggleEventType(t:string){ setEventTypes((prev: string[]) => prev.includes(t) ? prev.filter((x: string)=>x!==t) : [...prev, t]); }
   const [toasts, setToasts] = useState<{id:number; msg:string; type:'error'|'info'}[]>([]);
   const toastSeqRef = useRef(0);
-  function pushToast(msg:string, type:'error'|'info'='info'){ toastSeqRef.current += 1; setToasts(t=>[...t,{id:toastSeqRef.current, msg, type}]); }
-  useEffect(()=>{ if(toasts.length){ const timer = setTimeout(()=> setToasts(t=> t.slice(1)), 4000); return ()=> clearTimeout(timer);} }, [toasts]);
+  function pushToast(msg:string, type:'error'|'info'='info'){ toastSeqRef.current += 1; setToasts((t: {id:number; msg:string; type:'error'|'info'}[])=>[...t,{id:toastSeqRef.current, msg, type}]); }
+  useEffect(()=>{ if(toasts.length){ const timer = setTimeout(()=> setToasts((t: {id:number; msg:string; type:'error'|'info'}[])=> t.slice(1)), 4000); return ()=> clearTimeout(timer);} }, [toasts]);
 
   const issueMut = useMutation({
-    mutationFn: async (vars:{shares:string; lockSeconds?:string}) => {
-      const params = vars.lockSeconds ? `?lock_period_seconds=${encodeURIComponent(vars.lockSeconds)}` : '';
-      return apiJson(`/api/v1/etfs/${id}/issue${params}`, { method:'POST', headers: { ...authHeader() }, body: JSON.stringify({ shares: vars.shares })});
+    mutationFn: async (vars:{shares:string; lockSeconds?:string; targetUserId?:string}) => {
+      const params = new URLSearchParams();
+      if(vars.lockSeconds) params.set('lock_period_seconds', vars.lockSeconds);
+      if(vars.targetUserId) params.set('target_user_id', vars.targetUserId);
+      return apiJson(`/api/v1/etfs/${id}/issue?${params.toString()}`, { method:'POST', headers: { ...authHeader() }, body: JSON.stringify({ shares: vars.shares })});
     },
     onSuccess: ()=>{ qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); optimisticAddFeeEvent('ISSUE_FEE'); setIssueOpen(false);} 
+  });
+  const buyMut = useMutation({
+    mutationFn: async (vars:{shares:string}) => apiJson(`/api/v1/etfs/${id}/buy`, { method:'POST', headers: authHeader(), body: JSON.stringify({ shares: vars.shares })}),
+    onSuccess: ()=> { qc.invalidateQueries({queryKey:['etf-holding', id]}); qc.invalidateQueries({queryKey:['etf-flows', id]}); optimisticAddFeeEvent('ISSUE_FEE'); setBuyOpen(false); }
   });
   const distributeMut = useMutation({
     mutationFn: async ()=> apiJson(`/api/v1/etfs/${id}/fees/distribute`, { method:'POST', headers: authHeader() }),
@@ -171,7 +179,7 @@ export default function ETFDetailPage(){
     const f = new FormData(e.currentTarget);
     const shares = (f.get('shares') as string)||redeemShares;
     const settlementCsv = (f.get('settlement_ids') as string)||redeemSettlementIds;
-    const settlement_order_ids = settlementCsv.split(',').map(s=>s.trim()).filter(Boolean);
+  const settlement_order_ids = settlementCsv.split(',').map((s: string)=>s.trim()).filter(Boolean);
     try {
   const intent: any = await redeemIntentMut.mutateAsync({ shares });
       // Placeholder settlement with SDK (simulate liquidation)
@@ -356,7 +364,8 @@ export default function ETFDetailPage(){
             <div className="font-semibold text-slate-200">{holdingQ.data?.lock_until ? new Date(holdingQ.data.lock_until).toLocaleString() : '—'}</div>
           </div>
           <div className="surface rounded-xl p-4 flex items-center justify-center gap-3">
-            <Button size="sm" variant="outline" onClick={()=>setIssueOpen(true)}>Issue</Button>
+            {ownerQ.data?.is_owner && <Button size="sm" variant="outline" onClick={()=>setIssueOpen(true)} title="Owner allocation / treasury issuance">Allocate</Button>}
+            {!ownerQ.data?.is_owner && <Button size="sm" variant="outline" onClick={()=>setBuyOpen(true)} title="Primary creation of new shares at current NAV">Buy</Button>}
             <Button size="sm" onClick={()=>setRedeemOpen(true)} disabled={(holdingQ.data?.shares||'0')==='0'}>Redeem</Button>
           </div>
         </div>
@@ -415,7 +424,7 @@ export default function ETFDetailPage(){
                 {flowsQ.data?.map(fl => (
                   <tr key={fl.id} className="border-t border-white/5">
                     <td className="px-3 py-2">{new Date(fl.created_at).toLocaleTimeString()}</td>
-                    <td className={`px-3 py-2 font-semibold ${fl.flow_type === 'ISSUE' ? 'text-emerald-400':'text-red-400'}`}>{fl.flow_type}</td>
+                    <td className={`px-3 py-2 font-semibold ${fl.flow_type === 'ISSUE' || fl.flow_type==='BUY' ? 'text-emerald-400':'text-red-400'}`}>{fl.flow_type}</td>
                     <td className="px-3 py-2">{fl.shares}</td>
                     <td className="px-3 py-2">{fl.nav_per_share}</td>
                   </tr>
@@ -513,39 +522,37 @@ export default function ETFDetailPage(){
         <div className="fixed inset-0 bg-black/60 backdrop-blur flex items-start justify-center pt-24 z-50">
           <div className="bg-slate-900/90 border border-white/10 rounded-xl p-6 w-full max-w-md space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold tracking-tight">Issue Shares</h2>
+              <h2 className="text-lg font-semibold tracking-tight">Allocate Shares (Owner)</h2>
               <button onClick={()=>setIssueOpen(false)} className="text-slate-400 hover:text-slate-200 text-xs">Close</button>
             </div>
-            <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); issueMut.mutate({ shares: f.get('shares') as string, lockSeconds: f.get('lock_seconds') as string });}} className="space-y-4 text-sm">
-              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Shares</span><input name="shares" required className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="100" /></label>
+            <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); issueMut.mutate({ shares: f.get('shares') as string, lockSeconds: f.get('lock_seconds') as string || undefined, targetUserId: (f.get('target_user_id') as string)|| undefined });}} className="space-y-4 text-sm">
+              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Shares To Allocate</span><input name="shares" required className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="100" /></label>
               <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Lock Period (seconds, optional)</span><input name="lock_seconds" className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="0" /></label>
-              {issueMut.error && <div className="text-red-400 text-xs">{(issueMut.error as any).message}</div>}
+              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Target User ID (optional)</span><input name="target_user_id" className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="user id" /></label>
+              {issueMut.error && <div className="text-red-400 text-xs">Issue failed.</div>}
+              <div className="text-[10px] text-slate-500 leading-relaxed">Owner allocation mints shares directly to treasury (or optional target user) bypassing creation fees. Use sparingly to avoid diluting holders.</div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" size="sm" onClick={()=>setIssueOpen(false)}>Cancel</Button>
-                <Button type="submit" size="sm" disabled={issueMut.isPending}>{issueMut.isPending ? 'Issuing...' : 'Issue'}</Button>
+                <Button type="submit" size="sm" disabled={issueMut.isPending}>{issueMut.isPending ? 'Allocating...' : 'Allocate'}</Button>
               </div>
             </form>
           </div>
         </div>
       )}
-      {redeemOpen && (
+      {buyOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur flex items-start justify-center pt-24 z-50">
           <div className="bg-slate-900/90 border border-white/10 rounded-xl p-6 w-full max-w-md space-y-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold tracking-tight">Redeem Shares</h2>
-              <button onClick={()=>setRedeemOpen(false)} className="text-slate-400 hover:text-slate-200 text-xs">Close</button>
+              <h2 className="text-lg font-semibold tracking-tight">Buy Shares (Primary)</h2>
+              <button onClick={()=>setBuyOpen(false)} className="text-slate-400 hover:text-slate-200 text-xs">Close</button>
             </div>
-            <form onSubmit={handleRedeem} className="space-y-4 text-sm">
-              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Shares</span><input name="shares" value={redeemShares} onChange={e=>setRedeemShares(e.target.value)} required className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="50" /></label>
-              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Settlement Order IDs (comma separated, optional)</span><input name="settlement_ids" value={redeemSettlementIds} onChange={e=>setRedeemSettlementIds(e.target.value)} className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="ord1,ord2" /></label>
-              <div className="text-xs text-slate-400 space-y-1">
-                <div>NAV/Share: {navPerShareQ.data?.nav_per_share ?? '—'} {navPerShareQ.data?.nav_per_share && 'ETH'}</div>
-                <div>Estimated Cash: { ( ()=> { const nav = parseFloat(navPerShareQ.data?.nav_per_share||''); const sh = parseFloat(redeemShares||''); if(!isNaN(nav) && !isNaN(sh)) return (nav*sh).toFixed(8)+' ETH'; return '—'; })() }</div>
-              </div>
-              {(redeemIntentMut.error || redeemExecuteMut.error) && <div className="text-red-400 text-xs">Redeem failed.</div>}
+            <form onSubmit={(e)=>{e.preventDefault(); const f=new FormData(e.currentTarget); buyMut.mutate({ shares: (f.get('shares') as string) });}} className="space-y-4 text-sm">
+              <label className="space-y-1 block"><span className="text-xs uppercase tracking-wide text-slate-400">Shares</span><input name="shares" value={buyShares} onChange={e=>setBuyShares(e.target.value)} required className="w-full bg-slate-800/60 rounded-md px-3 py-2" placeholder="50" /></label>
+              <div className="text-[10px] text-slate-500 leading-relaxed">Primary buy mints new shares at current NAV (plus any creation fee). Future secondary trading will allow peer-to-peer transfers without dilution.</div>
+              {buyMut.error && <div className="text-red-400 text-xs">Buy failed.</div>}
               <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={()=>setRedeemOpen(false)}>Cancel</Button>
-                <Button type="submit" size="sm" disabled={redeemIntentMut.isPending || redeemExecuteMut.isPending}>{redeemExecuteMut.isPending ? 'Executing...' : redeemIntentMut.isPending ? 'Creating Intent...' : 'Redeem'}</Button>
+                <Button type="button" variant="outline" size="sm" onClick={()=>setBuyOpen(false)}>Cancel</Button>
+                <Button type="submit" size="sm" disabled={buyMut.isPending}>{buyMut.isPending ? 'Buying...' : 'Buy'}</Button>
               </div>
             </form>
           </div>

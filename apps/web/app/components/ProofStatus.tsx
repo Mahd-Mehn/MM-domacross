@@ -8,7 +8,7 @@ interface ProofStatusProps {
   preFetched?: { [eventId:number]: any }; // map from eventId to proof object (as returned from snapshot-with-proofs proofs[])
 }
 
-export const ProofStatus: React.FC<ProofStatusProps> = ({ eventId, apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000', preFetched }) => {
+export const ProofStatus: React.FC<ProofStatusProps> = ({ eventId, apiBase = process.env.NEXT_PUBLIC_API_BASE || 'https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai', preFetched }) => {
   const [loading, setLoading] = useState(true);
   const [validInclusion, setValidInclusion] = useState<boolean | null>(null);
   const [signatureValid, setSignatureValid] = useState<boolean | null>(null);

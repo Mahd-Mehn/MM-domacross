@@ -26,7 +26,7 @@ export default function IncentivesPage() {
   const { address } = useAuth();
   const adminListRaw = (process.env.NEXT_PUBLIC_ADMIN_WALLETS || '').split(/[;,&\s]+/).filter(Boolean).map(a=>a.toLowerCase());
   const isAdmin = !!address && (adminListRaw.length===0 || adminListRaw.includes(address.toLowerCase()));
-  const wsBase = (process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000').replace(/^http/, 'ws');
+  const wsBase = (process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_BASE || 'https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai').replace(/^http/, 'ws');
   const toasts = useToasts();
   const { events, connected } = useWebSocket(wsBase + '/ws', { events: ['incentive_epoch_finalized'] });
   const [riskFlags, setRiskFlags] = useState<{total:number; by_type: Record<string,number>}|null>(null);

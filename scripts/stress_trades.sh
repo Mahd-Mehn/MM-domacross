@@ -2,7 +2,7 @@
 # Simple stress harness: simulate valuation batches & placeholder trade events.
 # NOTE: Extend with real signed requests or WS interactions as integration matures.
 set -euo pipefail
-API_BASE=${API_BASE:-http://localhost:8000/api/v1}
+API_BASE=${API_BASE:-https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai/api/v1}
 DOMAINS=(alpha.one bravo.one charlie.one delta.one echo.one)
 ITERATIONS=${ITERATIONS:-50}
 SLEEP_MS=${SLEEP_MS:-150}

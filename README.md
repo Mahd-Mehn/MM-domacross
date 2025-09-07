@@ -845,7 +845,7 @@ Local-first dev on your VM with an AWS Terraform skeleton for later migration.
    docker compose up --build
 
 - Web: http://localhost:3000
-- API: http://localhost:8000/health
+- API: https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai/health
 - Postgres: localhost:5432 (in container)
 - Redis: localhost:6379 (in container)
 
