@@ -23,6 +23,12 @@ __pycache__/
 .pytest_cache/
 .docker/
 NOTES
+COMPETITIVE_EDGE.md
+FINAL_CHECKLIST.md
+DEPLOYMENT_STEPS.md
+SEO_TESTING_GUIDE.md
+apps/web/README-UI.md
+DEMO_SCRIPT.md
 
 # Terraform
 *.tfstate

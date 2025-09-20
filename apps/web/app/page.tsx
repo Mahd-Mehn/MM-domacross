@@ -5,15 +5,18 @@ import { Badge } from "../components/ui/Badge";
 
 const steps = [
   { title: 'Connect Wallet', desc: 'Link your Web3 wallet to get started' },
-  { title: 'Join Competition', desc: 'Choose a competition and pay the entry fee' },
-  { title: 'Trade Domains', desc: 'Buy and sell tokenized domains strategically' },
-  { title: 'Win Prizes', desc: 'Top performers share the prize pool' }
+  { title: 'List or Trade', desc: 'Create SEO-optimized listings or trade futures' },
+  { title: 'Leverage DeFi', desc: 'Use domains as collateral or trade with leverage' },
+  { title: 'Win & Earn', desc: 'Compete in tournaments and earn from trades' }
 ];
 
 const features = [
   { emoji: '🏆', title: 'Competitive Trading', desc: 'Time-bound competitions with dynamic leaderboards and prize pools.' },
-  { emoji: '🌐', title: 'Cross-Chain Support', desc: 'Seamless multi-chain domain trading powered by Doma infrastructure.' },
-  { emoji: '📊', title: 'Advanced Analytics', desc: 'Granular performance metrics, historical actions and valuation trends.' }
+  { emoji: '💰', title: 'Collateral Vaults', desc: 'Deposit domains as collateral to borrow funds with competitive APY rates.' },
+  { emoji: '📈', title: 'Futures Trading', desc: 'Trade perpetual futures on domains with up to 20x leverage.' },
+  { emoji: '📊', title: 'Professional Charts', desc: 'TradingView integration with advanced technical indicators.' },
+  { emoji: '💬', title: 'XMTP Chat', desc: 'Instant buyer-seller communication with on-chain offer linking.' },
+  { emoji: '🔍', title: 'SEO Domain Pages', desc: 'Each domain gets an indexed page for maximum visibility.' }
 ];
 
 export default function Home(){
@@ -25,15 +28,15 @@ export default function Home(){
         <div className="relative px-6 md:px-16 py-32 text-center max-w-5xl mx-auto">
           <Badge variant="info" glow className="mb-6">Cross-Chain Domain Trading Arena</Badge>
           <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight leading-tight mb-8 gradient-text">
-            Compete. Strategize. Dominate Domains.
+            Trade Domains. Leverage DeFi. Dominate Markets.
           </h1>
           <p className="text-xl text-slate-600 dark:text-slate-300 max-w-3xl mx-auto mb-10 transition-colors">
-            DomaCross turns decentralized domain trading into a real-time competitive sport. Prove your edge across chains, optimize portfolio velocity, and rise to the top.
+            DomaCross is the first platform combining domain trading competitions with advanced DeFi features. Trade futures, use domains as collateral, and compete for prizes - all in one place.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/competitions"><Button size="lg" className="shadow-glow" shimmer>Browse Competitions</Button></Link>
-            <Link href="/dashboard"><Button size="lg" variant="outline">View Dashboard</Button></Link>
-            <Link href="/strategies"><Button size="lg" variant="ghost">Strategy Sharing</Button></Link>
+            <Link href="/marketplace"><Button size="lg" className="shadow-glow" shimmer>Explore Marketplace</Button></Link>
+            <Link href="/defi"><Button size="lg" variant="outline">DeFi Trading Suite</Button></Link>
+            <Link href="/competitions"><Button size="lg" variant="ghost">Join Competition</Button></Link>
           </div>
           <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-6 text-left">
             {steps.map((s,i)=> (

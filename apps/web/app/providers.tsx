@@ -1,14 +1,20 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ToastProvider } from "../components/ToastProvider";
+import '@rainbow-me/rainbowkit/styles.css';
+import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { WagmiProvider, createConfig, http } from 'wagmi';
+import { base, baseSepolia } from 'wagmi/chains';
+import { ThemeProvider } from 'next-themes';
+import { XMTPProvider } from '../components/XMTPProvider';
+import { AlertProvider } from '../components/ui/Alert';
+import { ToastProvider } from '../components/ToastProvider';
 import { AuthProvider } from "../components/AuthProvider";
-import { WagmiProvider, createConfig, http } from "wagmi";
+import { DomaOrderbookProvider } from './providers/DomaOrderbookProvider';
 import { mainnet, sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 import type { ReactNode } from "react";
 import { getCurrentNetwork } from "../lib/config";
-import { DomaOrderbookProvider } from './providers/DomaOrderbookProvider';
 
 // Define Doma testnet chain
 const domaTestnet = {
@@ -53,13 +59,15 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <AuthProvider>
-            <DomaOrderbookProvider>
-              {children}
-            </DomaOrderbookProvider>
-          </AuthProvider>
-        </ToastProvider>
+        <AlertProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <DomaOrderbookProvider>
+                {children}
+              </DomaOrderbookProvider>
+            </AuthProvider>
+          </ToastProvider>
+        </AlertProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
