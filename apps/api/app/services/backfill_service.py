@@ -109,7 +109,8 @@ class ExternalIdBackfillService:
             except RuntimeError:
                 # inside event loop
                 import asyncio as _a2
-                _a2.get_event_loop().create_task(self._build_tx_order_mapping(db))
+                task = self._build_tx_order_mapping(db)
+                _a2.get_event_loop().create_task(task)
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
             listings = db.query(Listing).filter(Listing.external_order_id == None, Listing.created_at >= cutoff).limit(limit).all()  # noqa: E711
             offers = db.query(Offer).filter(Offer.external_order_id == None, Offer.created_at >= cutoff).limit(limit).all()  # noqa: E711

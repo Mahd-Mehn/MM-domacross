@@ -2,7 +2,7 @@
 const baseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE ||
-  "https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai";
+  "http://localhost:8000";
 
 export async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {

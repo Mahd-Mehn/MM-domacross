@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Seed database with sample domains for marketplace"""
 
-import asyncio
 import sys
-from datetime import datetime, timedelta
+import os
+from datetime import datetime, timedelta, timezone
 import random
+from decimal import Decimal
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from app.models.base import get_db
-from sqlalchemy.orm import Session
+from app.database import get_db
 from sqlalchemy import text
 
 # Sample domains with realistic data
@@ -113,76 +113,30 @@ def seed_domains():
     db = next(get_db())
     
     try:
-        # Clear existing domains (optional)
-        print("Clearing existing domains...")
-        db.execute(text("DELETE FROM domain_offers"))
-        db.execute(text("DELETE FROM domains"))
-        db.commit()
         
         print(f"Seeding {len(SAMPLE_DOMAINS)} domains...")
         
         for domain_data in SAMPLE_DOMAINS:
-            # Insert domain
+            # Insert domain (matching actual schema)
             domain_insert = text("""
-                INSERT INTO domains (name, tld, contract, token_id, owner, price, views, created_at, updated_at)
-                VALUES (:name, :tld, :contract, :token_id, :owner, :price, :views, :created_at, :updated_at)
+                INSERT INTO domains (name, tld, first_seen_at, last_estimated_value)
+                VALUES (:name, :tld, :first_seen_at, :last_estimated_value)
                 RETURNING id
             """)
+            
+            # Convert wei to ETH for database storage (precision 18,8 = max 10^10)
+            price_in_eth = float(domain_data["price"]) / 1e18 if domain_data["price"] else None
             
             result = db.execute(domain_insert, {
                 "name": domain_data["name"],
                 "tld": domain_data["tld"],
-                "contract": domain_data["contract"],
-                "token_id": domain_data["token_id"],
-                "owner": domain_data["owner"],
-                "price": domain_data["price"],
-                "views": domain_data["views"],
-                "created_at": datetime.utcnow() - timedelta(days=random.randint(1, 30)),
-                "updated_at": datetime.utcnow() - timedelta(hours=random.randint(1, 48)),
+                "first_seen_at": datetime.now(timezone.utc) - timedelta(days=random.randint(1, 30)),
+                "last_estimated_value": price_in_eth,
             })
             
             domain_id = result.scalar()
             
-            # Add some sample offers for each domain
-            num_offers = random.randint(0, 5)
-            for i in range(num_offers):
-                if domain_data["price"]:
-                    # Offer is 60-90% of listing price
-                    offer_amount = int(float(domain_data["price"]) * random.uniform(0.6, 0.9))
-                else:
-                    # Random offer amount for unlisted domains
-                    offer_amount = random.randint(1, 10) * 1000000000000000000
-                
-                offer_insert = text("""
-                    INSERT INTO domain_offers (domain_id, offerer, amount, expires_at, status, message, created_at)
-                    VALUES (:domain_id, :offerer, :amount, :expires_at, :status, :message, :created_at)
-                """)
-                
-                # Random offerer addresses
-                offerers = [
-                    "0x1234567890123456789012345678901234567890",
-                    "0x2345678901234567890123456789012345678901", 
-                    "0x3456789012345678901234567890123456789012",
-                    "0x4567890123456789012345678901234567890123",
-                    "0x5678901234567890123456789012345678901234",
-                ]
-                
-                expires_at = datetime.utcnow() + timedelta(hours=random.randint(1, 72))
-                status = random.choice(['active', 'active', 'active', 'expired', 'accepted'])
-                if status == 'expired':
-                    expires_at = datetime.utcnow() - timedelta(hours=random.randint(1, 24))
-                
-                db.execute(offer_insert, {
-                    "domain_id": domain_id,
-                    "offerer": random.choice(offerers),
-                    "amount": str(offer_amount),
-                    "expires_at": expires_at,
-                    "status": status,
-                    "message": f"Interested in {domain_data['name']}.eth for my collection",
-                    "created_at": datetime.utcnow() - timedelta(hours=random.randint(1, 168)),
-                })
-            
-            print(f"✅ Added {domain_data['name']}.{domain_data['tld']} with {num_offers} offers")
+            print(f"  ✓ Created domain: {domain_data['name']}.{domain_data['tld']} (ID: {domain_id})")
         
         db.commit()
         print("\n✨ Successfully seeded all domains!")

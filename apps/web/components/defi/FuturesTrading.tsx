@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useWalletClient } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TrendingUp, TrendingDown, Activity, DollarSign, BarChart3, AlertCircle } from 'lucide-react';
 import { useOrderbookSdk } from '../../lib/orderbook/client';
 import { useAlert } from '../ui/Alert';
+import { getDeFiService } from '../../lib/defi/defiService';
 import type { FuturesContract, FuturesPosition, FuturesOrder, OrderBookEntry } from '../../lib/defi/types';
 
 interface OrderBookProps {
@@ -71,8 +72,10 @@ function OrderBook({ bids, asks, currentPrice }: OrderBookProps) {
 
 export default function FuturesTrading() {
   const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const sdk = useOrderbookSdk();
   const { showAlert } = useAlert();
+  const defiService = getDeFiService();
   
   const [selectedContract, setSelectedContract] = useState<FuturesContract | null>(null);
   const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
@@ -158,34 +161,38 @@ export default function FuturesTrading() {
   }, [address]);
 
   const handleOpenPosition = async () => {
-    if (!sdk || !address || !selectedContract || !size) return;
+    if (!address || !selectedContract || !size || !walletClient) return;
     
     setLoading(true);
     try {
-      const order: FuturesOrder = {
-        id: Date.now().toString(),
-        trader: address,
-        contractId: selectedContract.id,
+      // Calculate margin requirement
+      const sizeNum = parseFloat(size);
+      const leverageNum = parseFloat(leverage);
+      const priceNum = Number(formatEther(selectedContract.currentPrice));
+      const marginRequired = (sizeNum * priceNum / leverageNum * 1000000).toString(); // Convert to USDC wei (6 decimals)
+      
+      // Use DeFi service to open position
+      const result = await defiService.openFuturesPosition(
+        selectedContract.id,
         side,
-        orderType,
-        size: parseEther(size),
-        price: orderType !== 'market' ? parseEther(price) : undefined,
-        timeInForce: 'GTC',
-        status: 'pending',
-        filledSize: BigInt(0),
-        averagePrice: BigInt(0),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+        parseEther(size).toString(),
+        leverageNum,
+        marginRequired,
+        walletClient
+      );
       
-      console.log('Opening position:', order);
-      
-      // Mock success
-      const leverageText = parseFloat(leverage) > 1 ? ` with ${leverage}x leverage` : '';
+      const leverageText = leverageNum > 1 ? ` with ${leverage}x leverage` : '';
       showAlert('success', 
         `${side.toUpperCase()} Position Opened!`, 
         `Successfully opened a ${side} position of ${size} ETH on ${selectedContract.domainName}${leverageText}. Monitor your position in the Active Positions section.`
       );
+      
+      // Refresh positions
+      if (address) {
+        const userPositions = await defiService.getFuturesPositions(address);
+        setPositions(userPositions);
+      }
+      
       setSize('');
       setPrice('');
     } catch (error) {

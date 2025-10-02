@@ -21,6 +21,12 @@ __pycache__/
 # Docker
 *.log
 .pytest_cache/
+DEFI_IMPLEMENTATION_SUMMARY.md
+ENHANCED_DOMA_INTEGRATION.md
+ENHANCED_SDK_IMPLEMENTATION_COMPLETE.md
+FINAL_HACKATHON_SUMMARY.md
+apps/api/fix_database_precision.py
+apps/api/fix_price_precision.sql
 .docker/
 NOTES
 COMPETITIVE_EDGE.md

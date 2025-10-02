@@ -517,7 +517,7 @@ MIT License - see [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-### Q4 2024
+### Q1 2024
 - [x] Core marketplace functionality
 - [x] DeFi lending/borrowing
 - [x] Futures trading
@@ -996,7 +996,7 @@ Local-first dev on your VM with an AWS Terraform skeleton for later migration.
    docker compose up --build
 
 - Web: http://localhost:3000
-- API: https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai/health
+- API: http://localhost:8000/health
 - Postgres: localhost:5432 (in container)
 - Redis: localhost:6379 (in container)
 

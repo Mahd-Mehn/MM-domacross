@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 export interface WebSocketEvent {
   type: string;
@@ -32,10 +32,14 @@ export function useWebSocket(url: string, opts: UseWsOptions = {}) {
       setSocket(ws);
       ws.onopen = () => {
         setConnected(true);
-    attemptRef.current = 0; // reset backoff
+        attemptRef.current = 0; // reset backoff
         // (Re)send subscription if server expects SUB command pattern
-        if (subsRef.current.size) {
-          ws.send('SUB ' + Array.from(subsRef.current).join(','));
+        if (subsRef.current.size && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send('SUB ' + Array.from(subsRef.current).join(','));
+          } catch (error) {
+            console.warn('Failed to send initial subscription:', error);
+          }
         }
       };
       ws.onmessage = (event) => {
@@ -77,24 +81,34 @@ export function useWebSocket(url: string, opts: UseWsOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
-  const subscribe = (evs: string[]) => {
+  const subscribe = useCallback((evs: string[]) => {
     evs.forEach(e => subsRef.current.add(e));
-    if (socket && connected) {
-      socket.send('SUB ' + Array.from(subsRef.current).join(','));
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send('SUB ' + Array.from(subsRef.current).join(','));
+      } catch (error) {
+        console.warn('Failed to send subscription:', error);
+      }
     }
-  };
+  }, [socket]);
 
-  const unsubscribeAll = () => {
+  const unsubscribeAll = useCallback(() => {
     subsRef.current.clear();
-    if (socket && connected) socket.send('UNSUB');
-  };
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send('UNSUB');
+      } catch (error) {
+        console.warn('Failed to send unsubscribe:', error);
+      }
+    }
+  }, [socket]);
 
-  const send = (payload: any) => {
+  const send = useCallback((payload: any) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     if (typeof payload === 'string') socket.send(payload);
     else socket.send(JSON.stringify(payload));
     return true;
-  };
+  }, [socket]);
 
   return { connected, events: eventBuffer, send, subscribe, unsubscribeAll };
 }

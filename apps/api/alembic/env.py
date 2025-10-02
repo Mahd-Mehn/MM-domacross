@@ -30,11 +30,19 @@ repo_root_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 if os.path.exists(repo_root_env):
     load_dotenv(repo_root_env)
 
-# Set DB URL dynamically from settings
-db_url = (
-    f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
-    f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
-)
+# Also load local .env file in the api directory
+local_env = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+if os.path.exists(local_env):
+    load_dotenv(local_env)
+
+# Set DB URL dynamically from settings - use DATABASE_URL if available
+if hasattr(settings, 'database_url') and settings.database_url:
+    db_url = settings.database_url
+else:
+    db_url = (
+        f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    )
 config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = models.Base.metadata

@@ -83,7 +83,12 @@ class DomaPollService:
             # API expects repeated eventTypes query param entries
             params["eventTypes"] = event_types
         client = await self._get_client()
-        url = f"{self.base_url.rstrip('/')}/v1/poll"
+        # Handle case where base_url already includes the poll endpoint
+        base = self.base_url.rstrip('/')
+        if base.endswith('/v1/poll'):
+            url = base
+        else:
+            url = f"{base}/v1/poll"
         resp = await client.get(url, params=params)
         resp.raise_for_status()
         return resp.json()
@@ -92,7 +97,12 @@ class DomaPollService:
         if not self.base_url:
             raise RuntimeError("DOMA Poll API not configured. Set DOMA_POLL_BASE_URL.")
         client = await self._get_client()
-        url = f"{self.base_url.rstrip('/')}/v1/poll/ack/{last_event_id}"
+        # Handle case where base_url already includes the poll endpoint
+        base = self.base_url.rstrip('/')
+        if base.endswith('/v1/poll'):
+            url = f"{base}/ack/{last_event_id}"
+        else:
+            url = f"{base}/v1/poll/ack/{last_event_id}"
         resp = await client.post(url)
         resp.raise_for_status()
 
@@ -102,7 +112,12 @@ class DomaPollService:
         client = await self._get_client()
         # Spec uses path parameter: /v1/poll/reset/{eventId}. Use 0 when None to rewind.
         event_id = to_event_id if to_event_id is not None else 0
-        url = f"{self.base_url.rstrip('/')}/v1/poll/reset/{event_id}"
+        # Handle case where base_url already includes the poll endpoint
+        base = self.base_url.rstrip('/')
+        if base.endswith('/v1/poll'):
+            url = f"{base}/reset/{event_id}"
+        else:
+            url = f"{base}/v1/poll/reset/{event_id}"
         resp = await client.post(url)
         resp.raise_for_status()
 

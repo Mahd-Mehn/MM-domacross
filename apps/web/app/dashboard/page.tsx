@@ -16,6 +16,9 @@ import { ValuationTransparencyPanel } from '../../components/ValuationTransparen
 import { LiveOpsPanel } from '../../components/LiveOpsPanel';
 import { LeaderboardPanel } from '../../components/LeaderboardPanel';
 import { ReplayControls } from '../../components/ReplayControls';
+import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '../../components/charts/DomainPriceChart';
+import { Shield, TrendingUp, BarChart3, DollarSign, Activity } from 'lucide-react';
+import { getDeFiService } from '../../lib/defi/defiService';
 
 interface UserPortfolio {
   total_value: string;
@@ -33,12 +36,38 @@ interface CompetitionSummary {
 }
 
 export default function DashboardPage() {
-  // Mock data for now - in a real app, this would come from the API
+  // Enhanced mock data including DeFi and marketplace metrics
   const mockPortfolio: UserPortfolio = {
     total_value: "2.5",
     competitions_participating: 1,
     domains_owned: 3,
   };
+
+  // DeFi metrics
+  const mockDeFiMetrics = {
+    totalCollateral: "15.2",
+    totalBorrowed: "5.8",
+    healthFactor: 1.85,
+    activePositions: 2,
+    unrealizedPnL: "+0.45"
+  };
+
+  // Marketplace metrics
+  const mockMarketplaceMetrics = {
+    totalListings: 1247,
+    volume24h: "125.8",
+    myListings: 2,
+    myOffers: 1,
+    successfulTrades: 8
+  };
+
+  // Portfolio distribution data
+  const portfolioData = [
+    { name: 'Domains', value: 12.5, color: '#3b82f6' },
+    { name: 'Collateral', value: 8.2, color: '#10b981' },
+    { name: 'Available', value: 4.3, color: '#f59e0b' },
+    { name: 'Futures', value: 2.1, color: '#8b5cf6' }
+  ];
 
   const { address } = useAuth();
   const { data: competitions, isLoading } = useQuery({
@@ -73,10 +102,81 @@ export default function DashboardPage() {
       </div>
 
   <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-  <Metric label="Portfolio Value" value={parseFloat(mockPortfolio.total_value)} unit=" ETH" delta={12} />
+        <Metric label="Portfolio Value" value={parseFloat(mockPortfolio.total_value)} unit=" ETH" delta={12} />
         <Metric label="Active Competitions" value={mockPortfolio.competitions_participating} />
         <Metric label="Domains Owned" value={mockPortfolio.domains_owned} />
-        <Metric label="Win Rate" value="--" />
+        <Metric label="Health Factor" value={mockDeFiMetrics.healthFactor} delta={8.5} />
+      </section>
+
+      {/* DeFi & Marketplace Overview */}
+      <section className="grid gap-6 lg:grid-cols-2">
+        <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Shield className="w-5 h-5 text-brand-400" />
+              <CardTitle>DeFi Overview</CardTitle>
+            </div>
+            <CardDescription>Your lending and borrowing positions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Total Collateral</p>
+                <p className="text-lg font-bold text-slate-800 dark:text-white">{mockDeFiMetrics.totalCollateral} ETH</p>
+              </div>
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Total Borrowed</p>
+                <p className="text-lg font-bold text-orange-600 dark:text-orange-400">{mockDeFiMetrics.totalBorrowed} ETH</p>
+              </div>
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Active Positions</p>
+                <p className="text-lg font-bold text-slate-800 dark:text-white">{mockDeFiMetrics.activePositions}</p>
+              </div>
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Unrealized P&L</p>
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">{mockDeFiMetrics.unrealizedPnL} ETH</p>
+              </div>
+            </div>
+            <Link href="/defi" className="inline-flex items-center gap-2 text-sm text-brand-600 dark:text-brand-300 hover:underline">
+              <TrendingUp className="w-4 h-4" />
+              Manage DeFi Positions →
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <BarChart3 className="w-5 h-5 text-accent" />
+              <CardTitle>Marketplace Activity</CardTitle>
+            </div>
+            <CardDescription>Your trading activity and market stats</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">24h Volume</p>
+                <p className="text-lg font-bold text-slate-800 dark:text-white">{mockMarketplaceMetrics.volume24h} ETH</p>
+              </div>
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">My Listings</p>
+                <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{mockMarketplaceMetrics.myListings}</p>
+              </div>
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">My Offers</p>
+                <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{mockMarketplaceMetrics.myOffers}</p>
+              </div>
+              <div className="text-center p-3 bg-slate-100/50 dark:bg-slate-700/30 rounded-lg">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Successful Trades</p>
+                <p className="text-lg font-bold text-green-600 dark:text-green-400">{mockMarketplaceMetrics.successfulTrades}</p>
+              </div>
+            </div>
+            <Link href="/marketplace" className="inline-flex items-center gap-2 text-sm text-brand-600 dark:text-brand-300 hover:underline">
+              <Activity className="w-4 h-4" />
+              View Marketplace →
+            </Link>
+          </CardContent>
+        </Card>
       </section>
 
   <ListingCreationCard onCreated={()=>{/* optional refresh hooks later */}} />
@@ -187,27 +287,76 @@ export default function DashboardPage() {
           </Card>
           <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
             <CardHeader>
-              <CardTitle>Performance Snapshot</CardTitle>
-              <CardDescription>High-level metrics (mocked).</CardDescription>
+              <CardTitle>Portfolio Distribution</CardTitle>
+              <CardDescription>Asset allocation across different categories</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4 text-xs">
-              <div className="rounded-lg p-3 border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 transition-colors"><div className="text-slate-500 dark:text-slate-400 mb-1">Avg Hold (d)</div><div className="text-slate-800 dark:text-slate-200 font-medium">--</div></div>
-              <div className="rounded-lg p-3 border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 transition-colors"><div className="text-slate-500 dark:text-slate-400 mb-1">Turnover</div><div className="text-slate-800 dark:text-slate-200 font-medium">--</div></div>
-              <div className="rounded-lg p-3 border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 transition-colors"><div className="text-slate-500 dark:text-slate-400 mb-1">Realized PnL</div><div className="text-green-600 dark:text-green-400 font-medium">--</div></div>
-              <div className="rounded-lg p-3 border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 transition-colors"><div className="text-slate-500 dark:text-slate-400 mb-1">Unrealized PnL</div><div className="text-slate-800 dark:text-slate-200 font-medium">--</div></div>
+            <CardContent>
+              <PortfolioDistributionChart data={portfolioData} height={200} />
+              <div className="grid grid-cols-2 gap-2 mt-4 text-xs">
+                {portfolioData.map((item, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-slate-600 dark:text-slate-400">{item.name}: {item.value} ETH</span>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
 
           <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
             <CardHeader>
-              <CardTitle>Upcoming Features</CardTitle>
-              <CardDescription>Planned enhancements.</CardDescription>
+              <CardTitle>Market Overview</CardTitle>
+              <CardDescription>Domain market activity and trends</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MarketOverviewChart height={250} />
+            </CardContent>
+          </Card>
+
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <CardTitle>Top Domain Performance</CardTitle>
+              <CardDescription>Price movements of your key domains</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DomainPriceChart 
+                domainName="crypto.eth" 
+                height={200} 
+                timeframe="24h"
+                chartType="area"
+              />
+            </CardContent>
+          </Card>
+
+          <Card className="backdrop-blur-md border border-slate-300/60 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/60 shadow-glow transition-colors">
+            <CardHeader>
+              <CardTitle>Recent Updates</CardTitle>
+              <CardDescription>New features and enhancements</CardDescription>
             </CardHeader>
             <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-2 transition-colors">
-              <div>• Live on-chain event streaming</div>
-              <div>• Advanced valuation models</div>
-              <div>• Strategy backtesting</div>
-              <div>• Social leader insights</div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span>• DeFi lending & borrowing platform</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span>• Advanced marketplace with real charts</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span>• Futures trading with up to 20x leverage</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                <span>• Cross-chain arbitrage opportunities</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                <span>• Real-time portfolio analytics</span>
+              </div>
             </CardContent>
           </Card>
         </div>

@@ -3,15 +3,19 @@
 import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
-import { BarChart3, TrendingUp, Shield, Activity, DollarSign, PieChart } from 'lucide-react';
+import { BarChart3, TrendingUp, Shield, Activity, DollarSign, PieChart, Globe } from 'lucide-react';
 import CollateralVault from '../../components/defi/CollateralVault';
 import FuturesTrading from '../../components/defi/FuturesTrading';
-import TradingChart, { SimplePriceChart } from '../../components/defi/TradingChart';
-import type { RiskMetrics, MarketStats, ChartData } from '../../lib/defi/types';
+import DomainMarketplace from '../../components/marketplace/DomainMarketplace';
+import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '../../components/charts/DomainPriceChart';
+import type { RiskMetrics } from '../../lib/defi/types';
 
 export default function DeFiDashboard() {
   const { address, isConnected } = useAccount();
-  const [activeView, setActiveView] = useState<'overview' | 'vault' | 'futures' | 'charts'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'vault' | 'futures' | 'marketplace' | 'charts'>('overview');
+  
+  // Debug logging
+  console.log('DeFiDashboard render - activeView:', activeView);
 
   // Mock data
   const mockRiskMetrics: RiskMetrics = {
@@ -25,25 +29,30 @@ export default function DeFiDashboard() {
     maxDrawdown: 12.5,
   };
 
-  const mockMarketStats: MarketStats = {
-    price24h: BigInt('5000000000000000000'), // 5 ETH
-    volume24h: BigInt('12500000000000000000000'), // 12,500 ETH
-    high24h: BigInt('5300000000000000000'), // 5.3 ETH
-    low24h: BigInt('4800000000000000000'), // 4.8 ETH
-    priceChange24h: 4.2,
-    volumeChange24h: 15.8,
-    marketCap: BigInt('1000000000000000000000000'), // 1M ETH
-    totalValueLocked: BigInt('500000000000000000000000'), // 500K ETH
+  const mockMarketStats = {
+    volume24h: BigInt('125000000000000000000'), // 125 ETH
+    volumeChange24h: 15.2,
+    totalValueLocked: BigInt('2500000000000000000000'), // 2500 ETH
+    activePositions: 1247,
+    totalUsers: 8934
   };
 
-  const mockChartData: ChartData[] = Array.from({ length: 24 }, (_, i) => ({
-    time: Date.now() - (24 - i) * 3600000,
-    open: 5 + Math.random() * 0.2,
-    high: 5.1 + Math.random() * 0.3,
-    low: 4.9 - Math.random() * 0.2,
-    close: 5 + Math.random() * 0.3 - 0.15,
-    volume: 1000 + Math.random() * 500,
-  }));
+  const mockChartData = [
+    { timestamp: '2024-01-01', price: 100, volume: 1000, close: 100 },
+    { timestamp: '2024-01-02', price: 105, volume: 1200, close: 105 },
+    { timestamp: '2024-01-03', price: 98, volume: 800, close: 98 },
+    { timestamp: '2024-01-04', price: 110, volume: 1500, close: 110 },
+    { timestamp: '2024-01-05', price: 115, volume: 1800, close: 115 },
+    { timestamp: '2024-01-06', price: 108, volume: 1100, close: 108 },
+    { timestamp: '2024-01-07', price: 120, volume: 2000, close: 120 }
+  ];
+
+  // Portfolio distribution data
+  const portfolioData = [
+    { name: 'Collateral', value: 15, color: '#3b82f6' },
+    { name: 'Available', value: 8, color: '#10b981' },
+    { name: 'Futures Margin', value: 2, color: '#f59e0b' }
+  ];
 
   const getRiskColor = (risk: string) => {
     switch(risk) {
@@ -242,8 +251,8 @@ export default function DeFiDashboard() {
                 </div>
 
                 <div>
-                  <p className="text-sm text-slate-400 mb-2">24h Performance</p>
-                  <SimplePriceChart data={mockChartData} height={120} />
+                  <p className="text-sm text-slate-400 mb-2">Portfolio Distribution</p>
+                  <PortfolioDistributionChart data={portfolioData} height={120} />
                 </div>
               </div>
             </div>
@@ -251,7 +260,10 @@ export default function DeFiDashboard() {
             {/* Quick Actions */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <button 
-                onClick={() => setActiveView('vault')}
+                onClick={() => {
+                  console.log('Deposit Collateral clicked, setting activeView to vault');
+                  setActiveView('vault');
+                }}
                 className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6 hover:border-brand-500/50 transition-all group"
               >
                 <Shield className="w-8 h-8 text-brand-400 mb-3 group-hover:scale-110 transition-transform" />
@@ -286,23 +298,71 @@ export default function DeFiDashboard() {
           </div>
         )}
 
-        {activeView === 'vault' && <CollateralVault />}
+        {activeView === 'vault' && (
+          <div>
+            <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+              <p className="text-green-400 text-sm">✅ Vault view is active! CollateralVault component should render below:</p>
+            </div>
+            <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
+              <h2 className="text-2xl font-bold text-white mb-6">Collateral Vault</h2>
+              <p className="text-slate-400 mb-6">Deposit your domains as collateral to borrow funds.</p>
+              
+              {/* Fallback UI while we debug */}
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <p className="text-blue-400">🔧 Debug: Attempting to render CollateralVault component...</p>
+                </div>
+                
+                <div className="border border-slate-700 rounded-lg p-1">
+                  <CollateralVault />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {activeView === 'futures' && <FuturesTrading />}
         {activeView === 'charts' && (
           <div className="space-y-6">
-            <TradingChart symbol="BINANCE:ETHUSDT" height={600} />
+            {/* Market Overview */}
+            <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
+              <h3 className="text-lg font-bold text-white mb-4">Market Overview</h3>
+              <MarketOverviewChart height={250} />
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
-                <h3 className="text-lg font-bold text-white mb-4">crypto.eth Price</h3>
-                <SimplePriceChart data={mockChartData} height={200} />
+                <DomainPriceChart 
+                  domainName="crypto.eth" 
+                  height={300} 
+                  showVolume={true}
+                  chartType="area"
+                />
               </div>
               
               <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
-                <h3 className="text-lg font-bold text-white mb-4">defi.eth Price</h3>
-                <SimplePriceChart 
-                  data={mockChartData.map(d => ({ ...d, close: d.close * 0.6 }))} 
-                  height={200} 
+                <DomainPriceChart 
+                  domainName="defi.eth" 
+                  height={300} 
+                  showVolume={true}
+                  chartType="area"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
+                <DomainPriceChart 
+                  domainName="web3.eth" 
+                  height={300} 
+                  chartType="line"
+                />
+              </div>
+              
+              <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
+                <DomainPriceChart 
+                  domainName="nft.eth" 
+                  height={300} 
+                  chartType="line"
                 />
               </div>
             </div>

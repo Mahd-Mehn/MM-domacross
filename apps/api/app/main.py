@@ -2,7 +2,7 @@ import re
 from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed
+from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed, defi, marketplace
 from .routers import prize_escrow, baskets, governance
 try:
     from app.services.incentive_service import incentive_service  # type: ignore
@@ -258,25 +258,62 @@ async def lifespan(app_: FastAPI):
 
     global bg_task
     loop_tasks: list[asyncio.Task] = []
-    if settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
+    
+    # Conditional background services based on configuration
+    if settings.enable_background_polling and settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(poll_loop()))
-    if settings.doma_orderbook_base_url and settings.app_env != "test":
+        logger.info("[startup] Background polling enabled")
+    else:
+        logger.info("[startup] Background polling disabled")
+        
+    if settings.enable_orderbook_snapshots and settings.doma_orderbook_base_url and settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(orderbook_loop()))
+        logger.info("[startup] Orderbook snapshots enabled")
+    else:
+        logger.info("[startup] Orderbook snapshots disabled")
+        
+    if settings.enable_reconciliation and settings.doma_orderbook_base_url and settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(reconcile_loop()))
+        logger.info("[startup] Reconciliation enabled")
+    else:
+        logger.info("[startup] Reconciliation disabled")
+        
     # NAV loop independent of external APIs
-    if settings.app_env != "test":
+    if settings.enable_nav_calculations and settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(nav_loop()))
         loop_tasks.append(asyncio.create_task(fast_snapshot_loop()))
+        logger.info("[startup] NAV calculations enabled")
+    else:
+        logger.info("[startup] NAV calculations disabled")
+        
+    if settings.enable_backfill_service and settings.app_env != "test":
         loop_tasks.append(asyncio.create_task(backfill_loop()))
-    loop_tasks.append(asyncio.create_task(merkle_loop()))
+        logger.info("[startup] Backfill service enabled")
+    else:
+        logger.info("[startup] Backfill service disabled")
+        
+    if settings.enable_merkle_service:
+        loop_tasks.append(asyncio.create_task(merkle_loop()))
+        logger.info("[startup] Merkle service enabled")
+    else:
+        logger.info("[startup] Merkle service disabled")
+        
     if settings.enable_raw_chain_ingest:
         loop_tasks.append(asyncio.create_task(chain_ingest_loop()))
+        logger.info("[startup] Chain ingest enabled")
+    else:
+        logger.info("[startup] Chain ingest disabled")
+        
+    # Incentive loop - always enabled for now
     loop_tasks.append(asyncio.create_task(incentive_loop()))
     # Start lightweight thread-based scheduler (periodic merkle snapshot + chain ingest stub)
     try:
         from .background import scheduler
-        scheduler.start()
-        logger.info("[startup] background scheduler started")
+        # Start scheduler in background thread to avoid blocking startup
+        import threading
+        scheduler_thread = threading.Thread(target=scheduler.start, daemon=True)
+        scheduler_thread.start()
+        logger.info("[startup] background scheduler started (non-blocking)")
     except Exception:
         logger.exception("Failed to start background scheduler")
     if loop_tasks:
@@ -291,12 +328,15 @@ async def lifespan(app_: FastAPI):
         logger.exception("Error closing Doma Poll service client")
     bg_list = getattr(app_.state, '_bg_tasks', [])
     for t in bg_list:
-            t.cancel()
+        t.cancel()
+    # Wait for tasks to cancel, but ignore CancelledError
     for t in bg_list:
-            try:
-                await t
-            except Exception:
-                pass
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass  # Expected when cancelling tasks
+        except Exception:
+            logger.exception("Error during task shutdown")
     # Stop scheduler
     try:
         from .background import scheduler
@@ -363,6 +403,8 @@ app.include_router(orderfeed.router)
 app.include_router(prize_escrow.router, prefix="/api/v1")
 app.include_router(baskets.router, prefix="/api/v1")
 app.include_router(governance.router, prefix="/api/v1")
+app.include_router(defi.router, prefix="/api/v1/defi")
+app.include_router(marketplace.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")

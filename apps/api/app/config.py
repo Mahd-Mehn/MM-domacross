@@ -1,17 +1,20 @@
 from typing import Optional
 from pydantic import Field, field_validator
 import json
+import os
+from dotenv import load_dotenv
 import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+load_dotenv()
 
 class Settings(BaseSettings):
     """Central application settings (Pydantic v2 style)."""
     model_config = SettingsConfigDict(case_sensitive=False, extra='ignore')
 
-    app_env: str = Field(default="local")
+    app_env: str = os.getenv("APP_ENV", "local")
 
     # Auth
     jwt_private_key_b64: str | None = None
@@ -20,15 +23,15 @@ class Settings(BaseSettings):
     jwt_audience: str = "domacross-users"
     jwt_ttl_seconds: int = 3600
 
-    # Redis
     redis_url: str = "redis://localhost:6379/0"
 
     # Database
     postgres_host: str = "localhost"
     postgres_port: int = 5432
-    postgres_user: str | None = "domacross"
-    postgres_password: str | None = "domacross"
-    postgres_db: str | None = "domacross"
+    postgres_db: str = "domacross"
+    postgres_user: str = "postgres"
+    postgres_password: str = "postgres"
+    database_url: str | None = Field(default=None, alias='DATABASE_URL')
 
     # Blockchain (optional for API baseline)
     doma_testnet_chain_id: Optional[int] = None
@@ -106,39 +109,34 @@ class Settings(BaseSettings):
     circuit_breaker_nav_move_bps: int = 2000  # 20% move triggers breaker
     circuit_breaker_window_minutes: int = 15
 
-    # Admins
-    # Read raw env into a string to avoid pydantic pre-JSON-decoding for list types.
-    admin_wallets_env: str | None = None
+    # Background Services Control
+    enable_background_polling: bool = Field(default=False, alias='ENABLE_BACKGROUND_POLLING')
+    enable_orderbook_snapshots: bool = Field(default=False, alias='ENABLE_ORDERBOOK_SNAPSHOTS')
+    enable_nav_calculations: bool = Field(default=False, alias='ENABLE_NAV_CALCULATIONS')
+    enable_reconciliation: bool = Field(default=False, alias='ENABLE_RECONCILIATION')
+    enable_backfill_service: bool = Field(default=False, alias='ENABLE_BACKFILL_SERVICE')
+    enable_merkle_service: bool = Field(default=False, alias='ENABLE_MERKLE_SERVICE')
+
+    # Admins - Simplified to avoid pydantic parsing issues
     admin_wallets: list[str] = Field(default_factory=list)
-
-    @field_validator('admin_wallets', mode='before')
-    @classmethod
-    def _load_admin_wallets(cls, v, info):  # type: ignore[override]
-        # If already provided list, normalize
-        if isinstance(v, list):
-            return [str(x).strip().lower() for x in v if str(x).strip()]
-        # Try env fallback via admin_wallets_env (available in model instance through context not here)
-        return v
-
-    def load_admin_wallets_env(self):
-        raw = self.admin_wallets_env
-        if not raw:
-            return
-        candidate = raw.strip()
-        wallets: list[str] = []
-        try:
-            loaded = json.loads(candidate)
-            if isinstance(loaded, list):
-                wallets = [str(x).strip().lower() for x in loaded if str(x).strip()]
-            else:
-                wallets = [s.strip().lower() for s in candidate.split(',') if s.strip()]
-        except Exception:
-            wallets = [s.strip().lower() for s in candidate.split(',') if s.strip()]
-        self.admin_wallets = wallets
+    
+    def load_admin_wallets_from_env(self):
+        """Load admin wallets from environment after initialization"""
+        import os
+        admin_wallets_env = os.getenv('ADMIN_WALLETS', '')
+        if admin_wallets_env:
+            self.admin_wallets = [s.strip().lower() for s in admin_wallets_env.split(',') if s.strip()]
 
 
 def _generate_ephemeral_keys() -> tuple[str, str]:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import base64
+    
+    key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
     private_pem = key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -155,7 +153,9 @@ def _generate_ephemeral_keys() -> tuple[str, str]:
 
 
 settings = Settings()
-settings.load_admin_wallets_env()
+
+# Load admin wallets from environment
+settings.load_admin_wallets_from_env()
 
 # Provide ephemeral keys if not supplied so app can start in dev/hackathon contexts.
 if not settings.jwt_private_key_b64 or not settings.jwt_public_key_b64:

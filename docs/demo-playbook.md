@@ -30,10 +30,10 @@ Open: http://localhost:3000/dashboard?demo=1
 ## Commands (Optional Live Calls)
 ```bash
 # Trigger new valuation batch
-curl -X POST https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai/api/v1/valuation/batch -H 'Content-Type: application/json' -d '{"domains":["alpha.one","bravo.one"]}'
+curl -X POST http://localhost:8000/api/v1/valuation/batch -H 'Content-Type: application/json' -d '{"domains":["alpha.one","bravo.one"]}'
 
 # Open a dispute
-curl -X POST https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai/api/v1/valuation/dispute -H 'Content-Type: application/json' -d '{"domain":"alpha.one","reason":"suspicious spike"}'
+curl -X POST http://localhost:8000/api/v1/valuation/dispute -H 'Content-Type: application/json' -d '{"domain":"alpha.one","reason":"suspicious spike"}'
 ```
 
 ## Tips

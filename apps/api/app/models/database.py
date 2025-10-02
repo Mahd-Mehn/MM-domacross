@@ -100,8 +100,8 @@ class Domain(Base):
     tld = Column(String(32), nullable=True, index=True)
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
     last_seen_event_at = Column(DateTime(timezone=True), nullable=True)
-    last_floor_price = Column(Numeric(18,8), nullable=True)
-    last_estimated_value = Column(Numeric(18,8), nullable=True)
+    last_floor_price = Column(Numeric(30,8), nullable=True)
+    last_estimated_value = Column(Numeric(30,8), nullable=True)
     last_orderbook_snapshot_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
 class Listing(Base):
@@ -510,3 +510,98 @@ class IncentiveUserPoint(Base):
     distributed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     __table_args__ = (UniqueConstraint('epoch_id','user_id', name='uq_incentive_epoch_user'),)
+
+# Marketplace and DeFi Database Models
+class MarketplaceTransaction(Base):
+    __tablename__ = "marketplace_transactions"
+    
+    id = Column(String(255), primary_key=True, index=True)  # SDK transaction ID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    transaction_type = Column(String(32), nullable=False, index=True)  # listing, purchase, offer, acceptance, cancellation
+    order_id = Column(String(255), nullable=False, index=True)  # Doma SDK order ID
+    contract_address = Column(String(42), nullable=False, index=True)  # Domain contract
+    token_id = Column(String(255), nullable=False, index=True)  # Domain token ID
+    price = Column(Numeric(30, 8), nullable=True)  # Transaction price in wei
+    currency = Column(String(16), nullable=False, default='ETH')  # ETH, WETH, USDC
+    chain_id = Column(String(32), nullable=False, index=True)  # eip155:1, eip155:137, etc.
+    tx_hash = Column(String(66), nullable=True, index=True)  # Blockchain transaction hash
+    status = Column(String(16), nullable=False, index=True, default='pending')  # pending, confirmed, failed
+    gas_used = Column(Numeric(18, 0), nullable=True)  # Gas used for transaction
+    gas_price = Column(Numeric(24, 8), nullable=True)  # Gas price in wei
+    marketplace_fee = Column(Numeric(24, 8), nullable=True)  # Marketplace fee paid
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+class DomainListing(Base):
+    __tablename__ = "domain_listings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(String(255), unique=True, nullable=False, index=True)  # Doma SDK order ID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    contract_address = Column(String(42), nullable=False, index=True)
+    token_id = Column(String(255), nullable=False, index=True)
+    domain_name = Column(String(255), nullable=True, index=True)  # Optional domain name
+    price = Column(Numeric(30, 8), nullable=False)  # Listing price in wei
+    currency = Column(String(16), nullable=False, default='ETH')
+    chain_id = Column(String(32), nullable=False, index=True)
+    status = Column(String(16), nullable=False, index=True, default='active')  # active, sold, cancelled, expired
+    expiration_time = Column(DateTime(timezone=True), nullable=True, index=True)
+    marketplace_transaction_id = Column(String(255), ForeignKey("marketplace_transactions.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class DomainOffer(Base):
+    __tablename__ = "domain_offers"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(String(255), unique=True, nullable=False, index=True)  # Doma SDK order ID
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # Offer creator
+    contract_address = Column(String(42), nullable=False, index=True)
+    token_id = Column(String(255), nullable=False, index=True)
+    domain_name = Column(String(255), nullable=True, index=True)
+    price = Column(Numeric(30, 8), nullable=False)  # Offer price in wei
+    currency = Column(String(16), nullable=False, default='WETH')
+    chain_id = Column(String(32), nullable=False, index=True)
+    status = Column(String(16), nullable=False, index=True, default='active')  # active, accepted, cancelled, expired
+    expiration_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    marketplace_transaction_id = Column(String(255), ForeignKey("marketplace_transactions.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class CollateralPosition(Base):
+    __tablename__ = "collateral_positions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    domain_contract = Column(String(42), nullable=False, index=True)
+    token_id = Column(String(255), nullable=False, index=True)
+    domain_name = Column(String(255), nullable=True, index=True)
+    collateral_value = Column(Numeric(24, 8), nullable=False)  # Domain value in wei
+    borrowed_amount = Column(Numeric(24, 8), nullable=False, default=0)  # USDC borrowed
+    health_factor = Column(Numeric(8, 4), nullable=False, default=0)  # Health factor (scaled by 1000)
+    liquidation_price = Column(Numeric(24, 8), nullable=False, default=0)  # Liquidation price
+    chain_id = Column(String(32), nullable=False, index=True)
+    status = Column(String(16), nullable=False, index=True, default='active')  # active, liquidated, withdrawn
+    acquisition_transaction_id = Column(String(255), ForeignKey("marketplace_transactions.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class FuturesPosition(Base):
+    __tablename__ = "futures_positions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    contract_id = Column(String(255), nullable=False, index=True)  # Futures contract identifier
+    domain_name = Column(String(255), nullable=False, index=True)  # Underlying domain
+    side = Column(String(8), nullable=False, index=True)  # long, short
+    size = Column(Numeric(24, 8), nullable=False)  # Position size in wei
+    entry_price = Column(Numeric(24, 8), nullable=False)  # Entry price
+    margin = Column(Numeric(24, 8), nullable=False)  # Margin amount (USDC)
+    leverage = Column(Numeric(8, 2), nullable=False)  # Leverage multiplier
+    liquidation_price = Column(Numeric(24, 8), nullable=False)  # Liquidation price
+    unrealized_pnl = Column(Numeric(24, 8), nullable=False, default=0)  # Current PnL
+    chain_id = Column(String(32), nullable=False, index=True)
+    status = Column(String(16), nullable=False, index=True, default='open')  # open, closed, liquidated
+    opened_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

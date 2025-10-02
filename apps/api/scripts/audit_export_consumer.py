@@ -2,7 +2,7 @@
 """Audit Export Streaming Consumer Example.
 
 Usage:
-  python scripts/audit_export_consumer.py --base https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai --token <JWT> [--after 100] [--verify]
+  python scripts/audit_export_consumer.py --base http://localhost:8000 --token <JWT> [--after 100] [--verify]
 
 Features:
   * Resumes from --after cursor (exclusive)
@@ -45,7 +45,7 @@ def consume(base: str, token: str, after: int | None, verify_integrity: bool):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--base', default='https://8000-01k4gmg9q2k5psffk18y0q47h1.cloudspaces.litng.ai')
+    ap.add_argument('--base', default='http://localhost:8000')
     ap.add_argument('--token', required=True)
     ap.add_argument('--after', type=int, default=None)
     ap.add_argument('--verify', action='store_true')

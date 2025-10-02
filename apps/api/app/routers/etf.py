@@ -67,15 +67,83 @@ def create_etf(
     db.refresh(etf)
     return etf
 
-@router.get('/etfs', response_model=list[DomainETF])
+@router.get('/etfs/debug/count')
+def debug_etf_count(db: Session = Depends(get_db)):
+    """Debug endpoint to check ETF count and basic info"""
+    try:
+        count = db.query(DomainETFModel).count()
+        etfs = db.query(DomainETFModel).limit(5).all()
+        return {
+            "total_count": count,
+            "sample_etfs": [
+                {
+                    "id": etf.id,
+                    "name": etf.name,
+                    "symbol": etf.symbol,
+                    "owner_user_id": etf.owner_user_id,
+                    "competition_id": etf.competition_id
+                } for etf in etfs
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@router.get('/etfs')
 def list_etfs(limit: int = 20, offset: int = 0, competition_id: int | None = None, search: str | None = None, db: Session = Depends(get_db)):
-    q = db.query(DomainETFModel)
-    if competition_id is not None:
-        q = q.filter(DomainETFModel.competition_id == competition_id)
-    if search:
-        like = f"%{search.lower()}%"
-        q = q.filter(DomainETFModel.name.ilike(like) | DomainETFModel.symbol.ilike(like))
-    return q.order_by(DomainETFModel.created_at.desc()).limit(min(limit, 100)).offset(offset).all()
+    """List all ETFs - simplified version for debugging"""
+    try:
+        print(f"[DEBUG] ETFs endpoint called with limit={limit}, offset={offset}, competition_id={competition_id}, search={search}")
+        
+        # Simple count first
+        count = db.query(DomainETFModel).count()
+        print(f"[DEBUG] Total ETFs in database: {count}")
+        
+        # Get all ETFs without filters first
+        all_etfs = db.query(DomainETFModel).all()
+        print(f"[DEBUG] Retrieved {len(all_etfs)} ETFs from query")
+        
+        # Apply filters
+        q = db.query(DomainETFModel)
+        if competition_id is not None:
+            q = q.filter(DomainETFModel.competition_id == competition_id)
+            print(f"[DEBUG] Filtered by competition_id: {competition_id}")
+        if search:
+            like = f"%{search.lower()}%"
+            q = q.filter(DomainETFModel.name.ilike(like) | DomainETFModel.symbol.ilike(like))
+            print(f"[DEBUG] Filtered by search: {search}")
+        
+        etfs = q.order_by(DomainETFModel.created_at.desc()).limit(min(limit, 100)).offset(offset).all()
+        print(f"[DEBUG] Final result: {len(etfs)} ETFs")
+        
+        # Convert to simple dict to avoid serialization issues
+        result = []
+        for etf in etfs:
+            etf_dict = {
+                "id": etf.id,
+                "name": etf.name,
+                "symbol": etf.symbol,
+                "description": etf.description,
+                "owner_user_id": etf.owner_user_id,
+                "competition_id": etf.competition_id,
+                "total_shares": str(etf.total_shares) if etf.total_shares else None,
+                "nav_last": str(etf.nav_last) if etf.nav_last else None,
+                "nav_updated_at": etf.nav_updated_at.isoformat() if etf.nav_updated_at else None,
+                "management_fee_bps": etf.management_fee_bps,
+                "performance_fee_bps": etf.performance_fee_bps,
+                "fee_accrued": str(etf.fee_accrued) if etf.fee_accrued else None,
+                "nav_high_water": str(etf.nav_high_water) if etf.nav_high_water else None,
+                "creation_fee_bps": etf.creation_fee_bps,
+                "redemption_fee_bps": etf.redemption_fee_bps
+            }
+            result.append(etf_dict)
+            print(f"[DEBUG] ETF: {etf.id} - {etf.name} ({etf.symbol})")
+        
+        return result
+    except Exception as e:
+        print(f"[ERROR] ETFs endpoint error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get('/etfs/{etf_id}', response_model=DomainETF)
 def get_etf(etf_id: int, db: Session = Depends(get_db)):
