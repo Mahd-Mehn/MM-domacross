@@ -74,19 +74,11 @@ export default function TradingPage() {
 
       // Create the listing
       const result = await sdk.createListing({
-        params: {
-          items: [{
-            contract: mockContract,
-            tokenId: mockTokenId,
-            price: parseEther(listingPrice).toString(),
-          }],
-          orderbook: OrderbookType.DOMA,
-        },
-        signer,
-        chainId: 'eip155:1',
-        onProgress: (step: string, progress: number) => {
-          console.log(`Creating listing: ${step} (${progress}%)`);
-        },
+        contract: mockContract,
+        tokenId: mockTokenId,
+        price: parseEther(listingPrice).toString(),
+      }, (step: string, progress: number) => {
+        console.log(`Creating listing: ${step} (${progress}%)`);
       });
 
       showAlert('success', 
@@ -122,15 +114,8 @@ export default function TradingPage() {
     try {
       const signer = viemToEthersSigner(walletClient, 'eip155:1');
 
-      await sdk.cancelListing({
-        params: {
-          orderId: listingId,
-        },
-        signer,
-        chainId: 'eip155:1',
-        onProgress: (step: string, progress: number) => {
-          console.log(`Cancelling listing: ${step} (${progress}%)`);
-        },
+      await sdk.cancelListing(listingId, (step: string, progress: number) => {
+        console.log(`Cancelling listing: ${step} (${progress}%)`);
       });
 
       showAlert('success', 'Listing Cancelled', 'Your listing has been successfully cancelled.');

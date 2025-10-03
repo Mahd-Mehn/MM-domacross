@@ -6,7 +6,6 @@ import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base, baseSepolia } from 'wagmi/chains';
 import { ThemeProvider } from 'next-themes';
-import { XMTPProvider } from '../components/XMTPProvider';
 import { AlertProvider } from '../components/ui/Alert';
 import { ToastProvider } from '../components/ToastProvider';
 import { AuthProvider } from "../components/AuthProvider";

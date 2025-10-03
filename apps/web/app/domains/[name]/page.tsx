@@ -7,7 +7,7 @@ import { useAccount, useWalletClient } from 'wagmi';
 import Head from 'next/head';
 import { Clock, MessageCircle, TrendingUp, AlertCircle, Eye } from 'lucide-react';
 import { useOrderbookSdk } from '../../../lib/orderbook/client';
-import XMTPChat from '../../../components/XMTPChat';
+import { XMTPChat } from '../../../components/XMTPChat';
 
 interface DomainData {
   name: string;
@@ -96,10 +96,9 @@ export default function DomainDealPage() {
       const result = await sdkCreateOffer({
         contract: domain.contract,
         tokenId: domain.tokenId,
-        price: parseEther(offerAmount).toString(),
-        onProgress: (step: string, progress: number) => {
-          console.log(`Creating offer: ${step} (${progress}%)`);
-        }
+        price: parseEther(offerAmount).toString()
+      }, (step: string, progress: number) => {
+        console.log(`Creating offer: ${step} (${progress}%)`);
       });
 
       if (result) {
@@ -112,7 +111,7 @@ export default function DomainDealPage() {
             amount: parseEther(offerAmount).toString(),
             expiresAt,
             message: offerMessage,
-            txHash: result.txHash, // Link to on-chain transaction
+            txHash: (result as any)?.transactionHash || (result as any)?.hash || '', // Link to on-chain transaction
           }),
         });
 
@@ -133,9 +132,8 @@ export default function DomainDealPage() {
     setTransactionLoading(true);
     try {
       // Use Doma SDK to buy the listing
-      const result = await buyListing(listingId, (step: string, progress: number) => {
-        console.log(`Buying domain: ${step} (${progress}%)`);
-      });
+      const result = await buyListing(listingId);
+      console.log('Buying domain...');
 
       if (result) {
         // Refresh domain data
@@ -231,7 +229,7 @@ export default function DomainDealPage() {
                 )}
                 {domain?.price && address !== domain?.owner && (
                   <button
-                    onClick={() => handleBuyDomain(domain.listings?.[0]?.id || '')}
+                    onClick={() => handleBuyDomain('listing-1')}
                     disabled={!isConnected || transactionLoading}
                     className="mt-3 bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400"
                   >
@@ -414,12 +412,11 @@ export default function DomainDealPage() {
         </button>
 
         {/* XMTP Chat */}
-        {showChat && (
+        {showChat && recipientAddress && (
           <XMTPChat
             domainName={domainName}
             offerId={selectedOfferId}
             recipientAddress={recipientAddress}
-            onClose={() => setShowChat(false)}
           />
         )}
       </div>
