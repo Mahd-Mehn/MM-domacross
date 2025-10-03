@@ -6,13 +6,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Fetch all domains from the API
   let domains: string[] = [];
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/domains/list`);
+    const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const response = await fetch(`${apiUrl}/api/v1/domains/list`);
     if (response.ok) {
       const data = await response.json();
       domains = data.domains || [];
     }
   } catch (error) {
-    console.error('Error fetching domains for sitemap:', error);
+    console.warn('Error fetching domains for sitemap:', error);
+    // Use mock domains for sitemap generation
+    domains = ['crypto.eth', 'defi.eth', 'web3.eth', 'nft.eth', 'dao.eth'];
   }
 
   // Static pages

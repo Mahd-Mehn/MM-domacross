@@ -112,15 +112,15 @@ export default function CollateralVault() {
             setPositions(userPositions);
           }
         }
-      } catch (refreshError) {
-        console.warn('Failed to refresh positions from API:', refreshError);
-        // Keep the mock position we added above
+      } catch (error) {
+        console.warn('Using mock positions, API not available:', error);
+        // Keep using mock positions
       }
       
       setSelectedDomain('');
       setCollateralAmount('');
     } catch (error) {
-      console.error('Deposit failed:', error);
+      console.warn('Deposit failed:', error);
       showAlert('error', 'Deposit Failed', 'Unable to deposit collateral. Please check your wallet connection and try again.');
     } finally {
       setLoading(false);
@@ -162,14 +162,19 @@ export default function CollateralVault() {
       
       // Refresh positions
       if (address) {
-        const userPositions = await defiService.getVaultPositions(address);
-        setPositions(userPositions);
+        try {
+          const userPositions = await defiService.getVaultPositions(address);
+          setPositions(userPositions);
+        } catch (error) {
+          console.warn('Could not refresh positions:', error);
+          // Continue without refreshing positions
+        }
       }
       
       setBorrowAmount('');
       setDuration('30');
     } catch (error) {
-      console.error('Borrow failed:', error);
+      console.warn('Borrow failed:', error);
       showAlert('error', 'Borrow Failed', 'Unable to process your loan request. Please ensure you have sufficient collateral.');
     } finally {
       setLoading(false);
