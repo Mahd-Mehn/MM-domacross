@@ -6,7 +6,7 @@ import { useBuyDomain, useMakeOffer, useCancelListing, useCancelOffer, useAccept
 import { useState } from "react";
 import DisputeBanner from "../app/components/DisputeBanner";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 
 export function DomainMarketPanel({ name }: { name: string }) {
   const domainQ = useDomain(name);
