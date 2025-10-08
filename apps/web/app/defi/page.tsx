@@ -6,7 +6,6 @@ import { formatEther } from 'viem';
 import { BarChart3, TrendingUp, Shield, Activity, DollarSign, PieChart, Globe } from 'lucide-react';
 import CollateralVault from '@/components/defi/CollateralVault';
 import FuturesTrading from '@/components/defi/FuturesTrading';
-import DomainMarketplace from '@/components/marketplace/DomainMarketplace';
 import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '@/components/charts/DomainPriceChart';
 import type { RiskMetrics } from '@/lib/defi/types';
 
@@ -14,9 +13,6 @@ export default function DeFiDashboard() {
   const { address, isConnected } = useAccount();
   const [activeView, setActiveView] = useState<'overview' | 'vault' | 'futures' | 'marketplace' | 'charts'>('overview');
   
-  // Debug logging
-  console.log('DeFiDashboard render - activeView:', activeView);
-
   // Mock data
   const mockRiskMetrics: RiskMetrics = {
     portfolioValue: BigInt('25000000000000000000'), // 25 ETH

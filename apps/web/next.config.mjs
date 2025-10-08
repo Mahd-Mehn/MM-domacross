@@ -6,7 +6,6 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true
   },
-  reactStrictMode: true,
   poweredByHeader: false,
   // Suppress hydration warnings in development (caused by browser extensions)
   logging: {
