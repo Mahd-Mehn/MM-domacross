@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     doma_marketplace_base_url: Optional[str] = None
     doma_orderbook_base_url: Optional[str] = None
     doma_subgraph_url: Optional[str] = None
+    doma_api_key: Optional[str] = None  # API key for Doma services
+    
+    # Doma Fractionalization
+    doma_fractionalization_contract: Optional[str] = None
+    enable_fractional_tokens: bool = Field(default=True, alias='ENABLE_FRACTIONAL_TOKENS')
+    
+    # DomaRank Oracle
+    enable_doma_rank_oracle: bool = Field(default=True, alias='ENABLE_DOMA_RANK_ORACLE')
+    doma_rank_update_interval_seconds: int = 600  # 10 minutes like DomaLend
 
     # Ingestion feature flags
     enable_raw_chain_ingest: bool = False  # default to False to stay within official Doma Poll API surface

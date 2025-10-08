@@ -3,7 +3,7 @@ from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed, defi, marketplace
-from .routers import prize_escrow, baskets, governance
+from .routers import prize_escrow, baskets, governance, doma_fractional
 try:
     from app.services.incentive_service import incentive_service  # type: ignore
 except Exception:  # pragma: no cover
@@ -255,6 +255,28 @@ async def lifespan(app_: FastAPI):
                 except Exception:
                     pass
             await asyncio.sleep(interval)
+    
+    async def doma_rank_oracle_loop():
+        """DomaRank Oracle - Update valuations every 10 minutes"""
+        interval = settings.doma_rank_update_interval_seconds
+        logger.info("[doma-rank] oracle loop started interval=%ss", interval)
+        try:
+            from app.services.doma_rank_oracle_service import doma_rank_oracle_service
+            from app.services.doma_subgraph_service import doma_subgraph_service
+        except Exception:
+            logger.exception("[doma-rank] failed to import services")
+            return
+        
+        while True:
+            try:
+                # First sync fractional tokens from subgraph
+                await doma_subgraph_service.sync_fractional_tokens_to_db()
+                # Then update valuations for all tokens
+                stats = await doma_rank_oracle_service.update_all_fractional_token_valuations()
+                logger.info("[doma-rank] updated valuations: %s", stats)
+            except Exception:
+                logger.exception("[doma-rank] oracle update failed")
+            await asyncio.sleep(interval)
 
     global bg_task
     loop_tasks: list[asyncio.Task] = []
@@ -306,6 +328,14 @@ async def lifespan(app_: FastAPI):
         
     # Incentive loop - always enabled for now
     loop_tasks.append(asyncio.create_task(incentive_loop()))
+    
+    # DomaRank Oracle loop - update fractional token valuations
+    if settings.enable_doma_rank_oracle and settings.doma_subgraph_url and settings.app_env != "test":
+        loop_tasks.append(asyncio.create_task(doma_rank_oracle_loop()))
+        logger.info("[startup] DomaRank Oracle enabled")
+    else:
+        logger.info("[startup] DomaRank Oracle disabled")
+    
     # Start lightweight thread-based scheduler (periodic merkle snapshot + chain ingest stub)
     try:
         from .background import scheduler
@@ -405,6 +435,7 @@ app.include_router(baskets.router, prefix="/api/v1")
 app.include_router(governance.router, prefix="/api/v1")
 app.include_router(defi.router, prefix="/api/v1/defi")
 app.include_router(marketplace.router, prefix="/api/v1")
+app.include_router(doma_fractional.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")

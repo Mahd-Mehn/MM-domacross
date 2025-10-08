@@ -103,6 +103,8 @@ class Domain(Base):
     last_floor_price = Column(Numeric(30,8), nullable=True)
     last_estimated_value = Column(Numeric(30,8), nullable=True)
     last_orderbook_snapshot_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    doma_rank_score = Column(Numeric(5,2), nullable=True, index=True)  # DomaRank score 0-100
+    is_fractionalized = Column(Boolean, default=False, index=True)
 
 class Listing(Base):
     __tablename__ = "listings"
@@ -605,3 +607,44 @@ class FuturesPosition(Base):
     opened_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     closed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+# Doma Protocol Fractional Tokens
+class FractionalToken(Base):
+    __tablename__ = "fractional_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    token_address = Column(String(42), unique=True, nullable=False, index=True)
+    domain_name = Column(String(255), ForeignKey('domains.name'), nullable=False, index=True)
+    symbol = Column(String(32), nullable=False)
+    name = Column(String(255), nullable=False)
+    decimals = Column(Integer, nullable=False, default=18)
+    total_supply = Column(Numeric(30, 0), nullable=False)  # Total fractional tokens
+    current_price_usd = Column(Numeric(24, 8), nullable=True)  # Market price from DEX
+    fractionalized_at = Column(DateTime(timezone=True), nullable=True)
+    minimum_buyout_price = Column(Numeric(24, 8), nullable=True)  # Min buyout in USDC
+    is_bought_out = Column(Boolean, default=False, index=True)
+    buyout_price = Column(Numeric(24, 8), nullable=True)
+    buyout_at = Column(DateTime(timezone=True), nullable=True)
+    # Metadata from Doma CDN
+    image_url = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    website = Column(Text, nullable=True)
+    twitter_link = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+# DomaRank Valuations
+class DomainValuation(Base):
+    __tablename__ = "domain_valuations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    domain_name = Column(String(255), ForeignKey('domains.name'), nullable=False, index=True)
+    doma_rank_score = Column(Numeric(5, 2), nullable=False)  # 0-100 score
+    age_score = Column(Numeric(5, 2), nullable=False)  # 0-10
+    demand_score = Column(Numeric(5, 2), nullable=False)  # 0-10
+    keyword_score = Column(Numeric(5, 2), nullable=False)  # 0-10
+    market_price_usd = Column(Numeric(24, 8), nullable=True)
+    oracle_price_usd = Column(Numeric(24, 8), nullable=False)  # Conservative price
+    confidence_level = Column(String(16), nullable=False, index=True)  # high, medium, low
+    calculated_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
