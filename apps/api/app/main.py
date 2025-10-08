@@ -290,57 +290,45 @@ async def lifespan(app_: FastAPI):
     global bg_task
     loop_tasks: list[asyncio.Task] = []
     
-    # Conditional background services based on configuration
+    # Log which services will be enabled
     if settings.enable_background_polling and settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
-        loop_tasks.append(asyncio.create_task(poll_loop()))
         logger.info("[startup] Background polling enabled")
     else:
         logger.info("[startup] Background polling disabled")
         
     if settings.enable_orderbook_snapshots and settings.doma_orderbook_base_url and settings.app_env != "test":
-        loop_tasks.append(asyncio.create_task(orderbook_loop()))
         logger.info("[startup] Orderbook snapshots enabled")
     else:
         logger.info("[startup] Orderbook snapshots disabled")
         
     if settings.enable_reconciliation and settings.doma_orderbook_base_url and settings.app_env != "test":
-        loop_tasks.append(asyncio.create_task(reconcile_loop()))
         logger.info("[startup] Reconciliation enabled")
     else:
         logger.info("[startup] Reconciliation disabled")
         
     # NAV loop independent of external APIs
     if settings.enable_nav_calculations and settings.app_env != "test":
-        loop_tasks.append(asyncio.create_task(nav_loop()))
-        loop_tasks.append(asyncio.create_task(fast_snapshot_loop()))
         logger.info("[startup] NAV calculations enabled")
     else:
         logger.info("[startup] NAV calculations disabled")
         
     if settings.enable_backfill_service and settings.app_env != "test":
-        loop_tasks.append(asyncio.create_task(backfill_loop()))
         logger.info("[startup] Backfill service enabled")
     else:
         logger.info("[startup] Backfill service disabled")
         
     if settings.enable_merkle_service:
-        loop_tasks.append(asyncio.create_task(merkle_loop()))
         logger.info("[startup] Merkle service enabled")
     else:
         logger.info("[startup] Merkle service disabled")
         
     if settings.enable_raw_chain_ingest:
-        loop_tasks.append(asyncio.create_task(chain_ingest_loop()))
         logger.info("[startup] Chain ingest enabled")
     else:
         logger.info("[startup] Chain ingest disabled")
         
-    # Incentive loop - always enabled for now
-    loop_tasks.append(asyncio.create_task(incentive_loop()))
-    
     # DomaRank Oracle loop - update fractional token valuations
     if settings.enable_doma_rank_oracle and settings.doma_subgraph_url and settings.app_env != "test":
-        loop_tasks.append(asyncio.create_task(doma_rank_oracle_loop()))
         logger.info("[startup] DomaRank Oracle enabled")
     else:
         logger.info("[startup] DomaRank Oracle disabled")
@@ -355,11 +343,50 @@ async def lifespan(app_: FastAPI):
         logger.info("[startup] background scheduler started (non-blocking)")
     except Exception:
         logger.exception("Failed to start background scheduler")
+    
+    # Create a delayed task starter
+    async def start_background_tasks_delayed():
+        await asyncio.sleep(5)  # Wait 5 seconds for app to be fully ready
+        logger.info("[startup] Starting background tasks...")
+        
+        if settings.enable_background_polling and settings.doma_poll_base_url and settings.doma_poll_api_key and settings.app_env != "test":
+            loop_tasks.append(asyncio.create_task(poll_loop()))
+            
+        if settings.enable_orderbook_snapshots and settings.doma_orderbook_base_url and settings.app_env != "test":
+            loop_tasks.append(asyncio.create_task(orderbook_loop()))
+            
+        if settings.enable_reconciliation and settings.doma_orderbook_base_url and settings.app_env != "test":
+            loop_tasks.append(asyncio.create_task(reconcile_loop()))
+            
+        if settings.enable_nav_calculations and settings.app_env != "test":
+            loop_tasks.append(asyncio.create_task(nav_loop()))
+            loop_tasks.append(asyncio.create_task(fast_snapshot_loop()))
+            
+        if settings.enable_backfill_service and settings.app_env != "test":
+            loop_tasks.append(asyncio.create_task(backfill_loop()))
+            
+        if settings.enable_merkle_service:
+            loop_tasks.append(asyncio.create_task(merkle_loop()))
+            
+        if settings.enable_raw_chain_ingest:
+            loop_tasks.append(asyncio.create_task(chain_ingest_loop()))
+            
+        # Incentive loop - always enabled for now
+        loop_tasks.append(asyncio.create_task(incentive_loop()))
+        
+        if settings.enable_doma_rank_oracle and settings.doma_subgraph_url and settings.app_env != "test":
+            loop_tasks.append(asyncio.create_task(doma_rank_oracle_loop()))
+        
+        logger.info("[startup] Background tasks started successfully")
+    
+    # Start the delayed task starter
+    asyncio.create_task(start_background_tasks_delayed())
+    
     if loop_tasks:
-        # keep reference to first for shutdown; others tracked in list
         bg_task = loop_tasks[0]
     setattr(app_.state, '_bg_tasks', loop_tasks)
-    yield
+    
+    yield  # Application is now ready to serve requests
     # Shutdown
     try:
         await doma_poll_service.close()
