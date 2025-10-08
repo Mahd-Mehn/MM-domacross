@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { apiJson, authHeader } from '../../lib/api';
 import Link from 'next/link';
-import { Button } from '../../components/ui/Button';
+import { Button } from '../../components/ui/button';
 
 interface ETF { id: number; name: string; symbol: string; nav_last?: string; competition_id?: number; }
 interface NavPoint { snapshot_time: string; nav_per_share: string; }

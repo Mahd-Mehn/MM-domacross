@@ -5,7 +5,7 @@ import { apiJson, authHeader } from '../../../lib/api';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts';
 import Link from 'next/link';
 import React, { useState, useEffect, useRef } from 'react';
-import { Button } from '../../../components/ui/Button';
+import { Button } from '../../../components/ui/button';
 import dynamic from 'next/dynamic';
 import { ProofStatus } from '../../components/ProofStatus';
 // integrity status uses merkle latest API

@@ -142,7 +142,7 @@ export function DomainDetailPage({ domainName }: Props) {
                 </Badge>
               </div>
             </div>
-            <Button onClick={shareOnTwitter} variant="outline" size="icon">
+            <Button onClick={shareOnTwitter} variant="outline" size="sm" className="w-10 h-10 p-0">
               <Share2 className="h-4 w-4" />
             </Button>
           </div>

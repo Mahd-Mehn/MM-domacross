@@ -5,8 +5,8 @@ import { useOrderbook } from "../lib/hooks/useOrderbook";
 import { useBuyDomain, useMakeOffer, useCancelListing, useCancelOffer, useAcceptOffer } from "../lib/hooks/useMarketplaceActions";
 import { useState } from "react";
 import DisputeBanner from "../app/components/DisputeBanner";
-import { Button } from "./ui/Button";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/Card";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export function DomainMarketPanel({ name }: { name: string }) {
   const domainQ = useDomain(name);

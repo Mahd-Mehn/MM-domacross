@@ -168,7 +168,7 @@ export function FractionalTokensPanel() {
 
               {/* Status */}
               {token.is_bought_out && (
-                <Badge variant="destructive" className="w-full justify-center">
+                <Badge variant="danger" className="w-full justify-center">
                   Bought Out
                 </Badge>
               )}
