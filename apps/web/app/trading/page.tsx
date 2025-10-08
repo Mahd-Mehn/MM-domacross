@@ -7,6 +7,7 @@ import { FileText, DollarSign, Clock, Shield, TrendingUp, Eye, AlertCircle, Chec
 import { useOrderbookSdk } from '@/lib/orderbook/client';
 import { OrderbookType, viemToEthersSigner } from '@doma-protocol/orderbook-sdk';
 import { useAlert } from '@/components/ui/Alert';
+import { useFractionalTokens } from '@/lib/hooks/useFractionalTokens';
 import Link from 'next/link';
 
 export default function TradingPage() {
@@ -14,6 +15,7 @@ export default function TradingPage() {
   const { data: walletClient } = useWalletClient();
   const sdk = useOrderbookSdk();
   const { showAlert } = useAlert();
+  const { data: fractionalTokensData } = useFractionalTokens();
 
   const [activeTab, setActiveTab] = useState<'list' | 'manage'>('list');
   const [selectedDomain, setSelectedDomain] = useState('');
@@ -24,26 +26,26 @@ export default function TradingPage() {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Mock domains owned by the user
-  const userDomains = [
-    { name: 'myportfolio', tld: 'eth', tokenId: '12345', value: '2.5' },
-    { name: 'coolproject', tld: 'eth', tokenId: '12346', value: '1.8' },
-    { name: 'defiking', tld: 'eth', tokenId: '12347', value: '4.2' },
-  ];
+  // Use real fractional tokens as user domains
+  const tokens = fractionalTokensData?.tokens || [];
+  const userDomains = tokens.map(token => ({
+    name: token.domain_name.split('.')[0],
+    tld: token.domain_name.split('.').slice(1).join('.') || 'eth',
+    tokenId: token.token_address,
+    value: token.current_price_usd
+  }));
 
-  // Mock active listings
-  const activeListings = [
-    {
-      id: '1',
-      domainName: 'myportfolio.eth',
-      price: parseEther('3'),
-      listedAt: new Date('2025-09-15'),
-      expiresAt: new Date('2025-10-15'),
-      views: 245,
-      offers: 2,
-      status: 'active' as const,
-    },
-  ];
+  // Mock active listings - in production, fetch from API
+  const activeListings = tokens.slice(0, 3).map((token, idx) => ({
+    id: String(idx + 1),
+    domainName: token.domain_name,
+    price: parseEther(token.current_price_usd || '1'),
+    listedAt: new Date(token.fractionalized_at),
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    views: Math.floor(Math.random() * 500),
+    offers: Math.floor(Math.random() * 5),
+    status: 'active' as const,
+  }));
 
   const handleCreateListing = async () => {
     if (!sdk || !walletClient || !address) {

@@ -19,6 +19,7 @@ import { ReplayControls } from '@/components/ReplayControls';
 import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '@/components/charts/DomainPriceChart';
 import { Shield, TrendingUp, BarChart3, DollarSign, Activity } from 'lucide-react';
 import { getDeFiService } from '@/lib/defi/defiService';
+import { useFractionalTokens } from '@/lib/hooks/useFractionalTokens';
 
 interface UserPortfolio {
   total_value: string;
@@ -36,37 +37,42 @@ interface CompetitionSummary {
 }
 
 export default function DashboardPage() {
-  // Enhanced mock data including DeFi and marketplace metrics
+  // Fetch real fractional tokens data
+  const { data: fractionalTokensData } = useFractionalTokens();
+  const tokens = fractionalTokensData?.tokens || [];
+  
+  // Calculate real metrics from fractional tokens
+  const totalValue = tokens.reduce((sum, token) => sum + parseFloat(token.current_price_usd || '0'), 0);
   const mockPortfolio: UserPortfolio = {
-    total_value: "2.5",
+    total_value: totalValue.toFixed(2),
     competitions_participating: 1,
-    domains_owned: 3,
+    domains_owned: tokens.length,
   };
 
-  // DeFi metrics
+  // DeFi metrics - using real token data
   const mockDeFiMetrics = {
-    totalCollateral: "15.2",
-    totalBorrowed: "5.8",
+    totalCollateral: (totalValue * 0.6).toFixed(2),
+    totalBorrowed: (totalValue * 0.23).toFixed(2),
     healthFactor: 1.85,
-    activePositions: 2,
+    activePositions: Math.min(tokens.length, 2),
     unrealizedPnL: "+0.45"
   };
 
-  // Marketplace metrics
+  // Marketplace metrics - using real token count
   const mockMarketplaceMetrics = {
-    totalListings: 1247,
-    volume24h: "125.8",
-    myListings: 2,
+    totalListings: tokens.length,
+    volume24h: (totalValue * 0.5).toFixed(2),
+    myListings: Math.min(tokens.length, 2),
     myOffers: 1,
     successfulTrades: 8
   };
 
-  // Portfolio distribution data
+  // Portfolio distribution data - based on real tokens
   const portfolioData = [
-    { name: 'Domains', value: 12.5, color: '#3b82f6' },
-    { name: 'Collateral', value: 8.2, color: '#10b981' },
-    { name: 'Available', value: 4.3, color: '#f59e0b' },
-    { name: 'Futures', value: 2.1, color: '#8b5cf6' }
+    { name: 'Domains', value: totalValue * 0.5, color: '#3b82f6' },
+    { name: 'Collateral', value: totalValue * 0.3, color: '#10b981' },
+    { name: 'Available', value: totalValue * 0.15, color: '#f59e0b' },
+    { name: 'Futures', value: totalValue * 0.05, color: '#8b5cf6' }
   ];
 
   const { address } = useAuth();

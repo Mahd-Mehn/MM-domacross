@@ -3,6 +3,7 @@
 import { useDomain, useListings, useOffers, useValuation } from "../lib/hooks/useDomainData";
 import { useOrderbook } from "../lib/hooks/useOrderbook";
 import { useBuyDomain, useMakeOffer, useCancelListing, useCancelOffer, useAcceptOffer } from "../lib/hooks/useMarketplaceActions";
+import { useFractionalToken } from "../lib/hooks/useFractionalTokens";
 import { useState } from "react";
 import DisputeBanner from "../app/components/DisputeBanner";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +15,7 @@ export function DomainMarketPanel({ name }: { name: string }) {
   const offersQ = useOffers(name);
   const valuationQ = useValuation(name);
   const orderbookQ = useOrderbook(name, { intervalMs: 20_000 });
+  const fractionalTokenQ = useFractionalToken(name);
   const buyMut = useBuyDomain();
   const offerMut = useMakeOffer();
   const cancelListingMut = useCancelListing();
@@ -38,6 +40,13 @@ export function DomainMarketPanel({ name }: { name: string }) {
               <li><span className="text-slate-400">Last Floor:</span> {domainQ.data.domain.last_floor_price ?? '—'}</li>
               <li><span className="text-slate-400">Est. Value:</span> {domainQ.data.domain.last_estimated_value ?? valuationQ.data?.value ?? '—'}</li>
               <li><span className="text-slate-400">Valuation Model:</span> {valuationQ.data?.model_version ?? '—'}</li>
+              {fractionalTokenQ.data && (
+                <>
+                  <li><span className="text-slate-400">Token Price:</span> ${fractionalTokenQ.data.current_price_usd}</li>
+                  <li><span className="text-slate-400">Symbol:</span> {fractionalTokenQ.data.symbol}</li>
+                  <li><span className="text-slate-400">Total Supply:</span> {fractionalTokenQ.data.total_supply}</li>
+                </>
+              )}
             </ul>
           )}
           <div className="pt-3 flex gap-2 items-center">

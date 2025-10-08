@@ -79,13 +79,30 @@ export default function DomainMarketplace() {
     try {
       setLoading(true);
       
-      // Load listings, stats, and user history in parallel
-      const [listingsData, statsData] = await Promise.all([
-        defiService.searchDomainListings('', selectedChain),
-        fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/marketplace/stats?chain=${selectedChain}`)
-          .then(r => r.ok ? r.json() : null)
-          .catch(() => null)
-      ]);
+      // Load fractional tokens from the API
+      const fractionalTokensResponse = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/fractional-tokens`)
+        .then(r => r.ok ? r.json() : { tokens: [] })
+        .catch(() => ({ tokens: [] }));
+
+      const tokens = fractionalTokensResponse.tokens || [];
+      
+      // Convert fractional tokens to listing format
+      const listingsData: DomainListing[] = tokens.map((token: any, index: number) => ({
+        orderId: token.token_address || `token-${index}`,
+        contract: token.token_address || '0x0000000000000000000000000000000000000000',
+        tokenId: token.domain_name || `token-${index}`,
+        price: token.current_price_usd ? (parseFloat(token.current_price_usd) * 1e18).toString() : '4500000000000000000', // Default 4.5 ETH
+        currency: 'ETH',
+        seller: token.token_address ? token.token_address.slice(0, 42) : '0x0000000000000000000000000000000000000000',
+        status: 'active',
+        createdAt: token.fractionalized_at || new Date().toISOString(),
+        chainId: selectedChain
+      }));
+
+      // Load stats
+      const statsData = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/marketplace/stats?chain=${selectedChain}`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
 
       setListings(listingsData);
       if (statsData) {
@@ -331,7 +348,7 @@ export default function DomainMarketplace() {
                 <div key={`${listing.orderId}-${listing.contract}-${listing.tokenId}-${index}`} className="bg-slate-800/50 rounded-lg p-4 border border-white/5">
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      <p className="text-white font-medium">Token #{listing.tokenId}</p>
+                      <p className="text-white font-medium">{listing.tokenId}</p>
                       <p className="text-sm text-slate-400">{listing.contract.slice(0, 10)}...</p>
                     </div>
                     <div className="text-right">
