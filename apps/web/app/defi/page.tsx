@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { BarChart3, TrendingUp, Shield, Activity, DollarSign, PieChart, Globe } from 'lucide-react';
-import CollateralVault from '../../components/defi/CollateralVault';
-import FuturesTrading from '../../components/defi/FuturesTrading';
-import DomainMarketplace from '../../components/marketplace/DomainMarketplace';
-import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '../../components/charts/DomainPriceChart';
-import type { RiskMetrics } from '../../lib/defi/types';
+import CollateralVault from '@/components/defi/CollateralVault';
+import FuturesTrading from '@/components/defi/FuturesTrading';
+import DomainMarketplace from '@/components/marketplace/DomainMarketplace';
+import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '@/components/charts/DomainPriceChart';
+import type { RiskMetrics } from '@/lib/defi/types';
 
 export default function DeFiDashboard() {
   const { address, isConnected } = useAccount();

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { apiJson, authHeader } from "../../lib/api";
+import { apiJson, authHeader } from "@/lib/api";
 
 interface MarketStats {
   listings_total: number; offers_total: number; listings_active: number; offers_active: number;

@@ -22,7 +22,7 @@ const safePriceToBigInt = (price: string | number): bigint => {
     return BigInt(0);
   }
 };
-import DomainMarketplace from '../../components/marketplace/DomainMarketplace';
+import DomainMarketplace from '@/components/marketplace/DomainMarketplace';
 
 interface DomainCard {
   name: string;

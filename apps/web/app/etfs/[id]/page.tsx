@@ -1,13 +1,13 @@
 "use client";
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiJson, authHeader } from '../../../lib/api';
+import { apiJson, authHeader } from '@/lib/api';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, AreaChart, Area } from 'recharts';
 import Link from 'next/link';
 import React, { useState, useEffect, useRef } from 'react';
-import { Button } from '../../../components/ui/button';
+import { Button } from '@/components/ui/button';
 import dynamic from 'next/dynamic';
-import { ProofStatus } from '../../components/ProofStatus';
+import { ProofStatus } from '@/app/components/ProofStatus';
 // integrity status uses merkle latest API
 
 // Lazy load SDK only on client when needed

@@ -1,19 +1,19 @@
 "use client";
-import { useWebSocket } from '../../../hooks/useWebSocket';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { useEffect, useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import { apiJson, authHeader } from "../../../lib/api";
-import { getToken } from "../../../lib/token";
-import { useToasts } from "../../../components/ToastProvider";
-import TradingInterface from "../../../components/TradingInterface";
-import DomainBasket from "../../../components/DomainBasket";
-import USDCDeposit from "../../../components/USDCDeposit";
-import { CompetitionCharts } from "../../../components/CompetitionCharts";
-import { RiskSlippageCharts } from "../../../components/RiskSlippageCharts";
-import { useSubmitCompetitionSettlement, useVerifyCompetitionSettlement } from "../../../lib/hooks/useMarketplaceActions";
-import { useAuditEvents } from "../../../lib/hooks/useAuditEvents";
-import { useAuth } from "../../../components/AuthProvider";
+import { apiJson, authHeader } from "@/lib/api";
+import { getToken } from "@/lib/token";
+import { useToasts } from "@/components/ToastProvider";
+import TradingInterface from "@/components/TradingInterface";
+import DomainBasket from "@/components/DomainBasket";
+import USDCDeposit from "@/components/USDCDeposit";
+import { CompetitionCharts } from "@/components/CompetitionCharts";
+import { RiskSlippageCharts } from "@/components/RiskSlippageCharts";
+import { useSubmitCompetitionSettlement, useVerifyCompetitionSettlement } from "@/lib/hooks/useMarketplaceActions";
+import { useAuditEvents } from "@/lib/hooks/useAuditEvents";
+import { useAuth } from "@/components/AuthProvider";
 // (Removed duplicate useQuery alias after refactor)
 
 interface Competition {

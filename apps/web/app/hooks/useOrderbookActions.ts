@@ -2,7 +2,7 @@
 import { useCallback, useState } from 'react';
 import { useWalletClient } from 'wagmi';
 import { viemToEthersSigner, OrderbookType } from '@doma-protocol/orderbook-sdk';
-import { useDomaOrderbook } from '../providers/DomaOrderbookProvider';
+import { useDomaOrderbook } from '@/app/providers/DomaOrderbookProvider';
 
 interface ProgressState { step: string; progress: number; }
 

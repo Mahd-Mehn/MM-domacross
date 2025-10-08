@@ -6,14 +6,14 @@ import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base, baseSepolia } from 'wagmi/chains';
 import { ThemeProvider } from 'next-themes';
-import { AlertProvider } from '../components/ui/Alert';
-import { ToastProvider } from '../components/ToastProvider';
-import { AuthProvider } from "../components/AuthProvider";
+import { AlertProvider } from '@/components/ui/Alert';
+import { ToastProvider } from '@/components/ToastProvider';
+import { AuthProvider } from "@/components/AuthProvider";
 import { DomaOrderbookProvider } from './providers/DomaOrderbookProvider';
 import { mainnet, sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 import type { ReactNode } from "react";
-import { getCurrentNetwork } from "../lib/config";
+import { getCurrentNetwork } from "@/lib/config";
 
 // Define Doma testnet chain
 const domaTestnet = {

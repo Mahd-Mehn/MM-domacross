@@ -1,24 +1,24 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useIncentiveSchedules, useCurrentIncentiveEpoch, useEpochPoints } from '../../lib/hooks/useIncentives';
+import { useIncentiveSchedules, useCurrentIncentiveEpoch, useEpochPoints } from '@/lib/hooks/useIncentives';
 import { useState, useEffect, useRef, Suspense } from 'react';
-import { apiJson, authHeader } from "../../lib/api";
-import { useAuth } from "../../components/AuthProvider";
-import { Metric } from "../../components/ui/Metric";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
-import { Badge } from "../../components/ui/badge";
+import { apiJson, authHeader } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
+import { Metric } from "@/components/ui/Metric";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
-import { ListingCreationCard } from '../../components/ListingCreationCard';
-import { ActivityFeed } from '../../components/ActivityFeed';
-import { ValuationPanel } from '../../components/ValuationPanel';
-import { ValuationTransparencyPanel } from '../../components/ValuationTransparencyPanel';
-import { LiveOpsPanel } from '../../components/LiveOpsPanel';
-import { LeaderboardPanel } from '../../components/LeaderboardPanel';
-import { ReplayControls } from '../../components/ReplayControls';
-import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '../../components/charts/DomainPriceChart';
+import { ListingCreationCard } from '@/components/ListingCreationCard';
+import { ActivityFeed } from '@/components/ActivityFeed';
+import { ValuationPanel } from '@/components/ValuationPanel';
+import { ValuationTransparencyPanel } from '@/components/ValuationTransparencyPanel';
+import { LiveOpsPanel } from '@/components/LiveOpsPanel';
+import { LeaderboardPanel } from '@/components/LeaderboardPanel';
+import { ReplayControls } from '@/components/ReplayControls';
+import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '@/components/charts/DomainPriceChart';
 import { Shield, TrendingUp, BarChart3, DollarSign, Activity } from 'lucide-react';
-import { getDeFiService } from '../../lib/defi/defiService';
+import { getDeFiService } from '@/lib/defi/defiService';
 
 interface UserPortfolio {
   total_value: string;

@@ -2,10 +2,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import "./globals.css";
-import { ThemeToggle } from "../components/ThemeToggle";
-import { MobileNav } from "../components/MobileNav";
-import { AdminNav } from "../components/AdminNav";
-import ClientConnectWallet from "../components/ClientConnectWallet";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { MobileNav } from "@/components/MobileNav";
+import { AdminNav } from "@/components/AdminNav";
+import ClientConnectWallet from "@/components/ClientConnectWallet";
 export const metadata = {
   title: "DomaCross",
   description: "Cross-chain domain trading competitions",

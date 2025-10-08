@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { useAlert, ModalAlert } from '../../../components/ui/Alert';
+import { useAlert, ModalAlert } from '@/components/ui/Alert';
 import { Bell, CheckCircle, AlertCircle, XCircle, Info } from 'lucide-react';
 
 export default function AlertDemo() {

@@ -6,8 +6,8 @@ import { formatEther, parseEther } from 'viem';
 import { useAccount, useWalletClient } from 'wagmi';
 import Head from 'next/head';
 import { Clock, MessageCircle, TrendingUp, AlertCircle, Eye } from 'lucide-react';
-import { useOrderbookSdk } from '../../../lib/orderbook/client';
-import { XMTPChat } from '../../../components/XMTPChat';
+import { useOrderbookSdk } from '@/lib/orderbook/client';
+import { XMTPChat } from '@/components/XMTPChat';
 
 interface DomainData {
   name: string;

@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState } from 'react';
-import { verifyProofBundle, verifySnapshotSignature } from '../lib/merkleVerify';
+import { verifyProofBundle, verifySnapshotSignature } from '@/app/lib/merkleVerify';
 
 interface ProofStatusProps {
   eventId: number;

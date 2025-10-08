@@ -1,10 +1,10 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
-import { useIncentiveSchedules, useIncentiveSchedule, useCurrentIncentiveEpoch, useEpochPoints, useFinalizeIncentiveEpoch } from '../../lib/hooks/useIncentives';
-import { apiJson, authHeader } from '../../lib/api';
-import { useWebSocket } from '../../hooks/useWebSocket';
-import { useAuth } from '../../components/AuthProvider';
-import { useToasts } from '../../components/ToastProvider';
+import { useIncentiveSchedules, useIncentiveSchedule, useCurrentIncentiveEpoch, useEpochPoints, useFinalizeIncentiveEpoch } from '@/lib/hooks/useIncentives';
+import { apiJson, authHeader } from '@/lib/api';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useAuth } from '@/components/AuthProvider';
+import { useToasts } from '@/components/ToastProvider';
 
 export default function IncentivesPage() {
   const [mounted, setMounted] = useState(false);

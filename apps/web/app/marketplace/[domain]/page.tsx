@@ -1,7 +1,7 @@
-import { DomainMarketPanel } from "../../../components/DomainMarketPanel";
-import DisputeBanner from "../../components/DisputeBanner";
-import ValuationTransparencyPanel from "../../components/ValuationTransparencyPanel";
-import DomainMarketplace from "../../../components/marketplace/DomainMarketplace";
+import { DomainMarketPanel } from "@/components/DomainMarketPanel";
+import DisputeBanner from "@/app/components/DisputeBanner";
+import ValuationTransparencyPanel from "@/app/components/ValuationTransparencyPanel";
+import DomainMarketplace from "@/components/marketplace/DomainMarketplace";
 
 interface Props { 
   params: Promise<{ domain: string }> 

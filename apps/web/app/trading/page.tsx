@@ -4,9 +4,9 @@ import { useState } from 'react';
 import { useAccount, useWalletClient } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { FileText, DollarSign, Clock, Shield, TrendingUp, Eye, AlertCircle, CheckCircle } from 'lucide-react';
-import { useOrderbookSdk } from '../../lib/orderbook/client';
+import { useOrderbookSdk } from '@/lib/orderbook/client';
 import { OrderbookType, viemToEthersSigner } from '@doma-protocol/orderbook-sdk';
-import { useAlert } from '../../components/ui/Alert';
+import { useAlert } from '@/components/ui/Alert';
 import Link from 'next/link';
 
 export default function TradingPage() {
