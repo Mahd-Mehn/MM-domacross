@@ -110,8 +110,8 @@ class DomaSubgraphService:
               metadata {
                 image
                 description
-                website
-                twitterLink
+                primaryWebsite
+                xLink
               }
             }
           }
@@ -178,6 +178,31 @@ class DomaSubgraphService:
         tokens = await self.get_all_fractional_tokens()
         return next((t for t in tokens if t["address"].lower() == token_address.lower()), None)
     
+    async def get_active_domains(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get a list of active domains from the subgraph, defined as domains with active offers.
+        """
+        query = """
+        query GetActiveDomains($limit: Int!) {
+          domains(where: { activeOffersCount_gt: 0 }, first: $limit, orderBy: activeOffersCount, orderDirection: desc) {
+            name
+            activeOffersCount
+            highestOffer {
+              price
+            }
+            fractionalTokenInfo {
+              currentPrice
+            }
+          }
+        }
+        """
+        try:
+            data = await self.query_subgraph(query, {"limit": limit})
+            return data.get("domains", [])
+        except Exception as e:
+            logger.error(f"Failed to fetch active domains: {e}")
+            return []
+
     async def get_domain_trading_history(self, domain_name: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Fetch trading history for a domain"""
         query = """
@@ -280,8 +305,8 @@ class DomaSubgraphService:
                         ) if token_data.get("fractionalizedAt") else None,
                         image_url=metadata.get("image"),
                         description=metadata.get("description"),
-                        website=metadata.get("website"),
-                        twitter_link=metadata.get("twitterLink")
+                        website=metadata.get("primaryWebsite"),
+                        twitter_link=metadata.get("xLink")
                     )
                     session.add(frac_token)
                     created += 1

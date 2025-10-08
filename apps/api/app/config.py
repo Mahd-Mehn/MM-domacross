@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     doma_marketplace_base_url: Optional[str] = None
     doma_orderbook_base_url: Optional[str] = None
     doma_subgraph_url: Optional[str] = None
-    doma_api_key: Optional[str] = None  # API key for Doma services
+    doma_api_key: Optional[str] = Field(default=None, alias='DOMA_TESTNET_API_KEY')  # API key for Doma services
     
     # Doma Fractionalization
     doma_fractionalization_contract: Optional[str] = None

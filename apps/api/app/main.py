@@ -2,7 +2,7 @@ import re
 from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed, defi, marketplace
+from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed, defi, marketplace, debug
 from .routers import prize_escrow, baskets, governance, doma_fractional
 try:
     from app.services.incentive_service import incentive_service  # type: ignore
@@ -100,13 +100,22 @@ async def lifespan(app_: FastAPI):
                 db = SessionLocal()
                 # choose domains with recent activity (guarded import)
                 try:
-                    from app.models.database import Domain as _D  # type: ignore
-                    recent_domains = [d.name for d in db.query(_D).filter(_D.last_estimated_value != None).order_by(_D.first_seen_at.desc()).limit(25)]  # noqa: E711
-                    if not recent_domains:
-                        recent_domains = [d.name for d in db.query(_D).order_by(_D.first_seen_at.desc()).limit(10)]
+                    from app.services.doma_subgraph_service import doma_subgraph_service
+                    active_domains_from_subgraph = await doma_subgraph_service.get_active_domains(limit=50)
+                    domain_names = [d['name'] for d in active_domains_from_subgraph]
                 except Exception:
-                    recent_domains = []
-                await orderbook_snapshot_service.snapshot_once(db, recent_domains)
+                    logger.exception("[orderbook] Failed to fetch active domains from subgraph, falling back to recent")
+                    domain_names = []
+                
+                if not domain_names:
+                    try:
+                        from app.models.database import Domain as _D
+                        domain_names = [d.name for d in db.query(_D).order_by(_D.first_seen_at.desc()).limit(10)]
+                    except Exception:
+                        domain_names = []
+
+                if domain_names:
+                    await orderbook_snapshot_service.snapshot_once(db, domain_names)
             except Exception:
                 logger.exception("[orderbook] snapshot failed")
             finally:
@@ -436,6 +445,7 @@ app.include_router(governance.router, prefix="/api/v1")
 app.include_router(defi.router, prefix="/api/v1/defi")
 app.include_router(marketplace.router, prefix="/api/v1")
 app.include_router(doma_fractional.router, prefix="/api/v1")
+app.include_router(debug.router, prefix="/api/v1")
 
 
 @app.websocket("/ws")

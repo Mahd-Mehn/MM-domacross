@@ -51,26 +51,37 @@ class OrderbookSnapshotService:
         db.add(snap)
         self.total_snapshots += 1
 
-    async def snapshot_once(self, db: Session, domain_names: List[str]) -> Dict[str, Any]:
+    async def snapshot_once(self, db: Session, domain_names: List[str], batch_size: int = 10) -> Dict[str, Any]:
         collected = 0
-        for name in domain_names:
-            try:
-                data = await self.fetch_orderbook(name)
-                # Expect structure with 'bids' and 'asks' lists of [price, size]
-                bids = data.get('bids') or []
-                asks = data.get('asks') or []
-                for p, s in bids[:10]:
-                    self.persist_snapshot(db, name, 'BUY', Decimal(str(p)), Decimal(str(s)))
-                    collected += 1
-                for p, s in asks[:10]:
-                    self.persist_snapshot(db, name, 'SELL', Decimal(str(p)), Decimal(str(s)))
-                    collected += 1
-                dom = db.query(Domain).filter(Domain.name==name).first()
-                if dom:
-                    dom.last_orderbook_snapshot_at = datetime.now(timezone.utc)
-            except Exception:
-                # swallow per-domain errors
-                pass
+        active_domains = db.query(Domain).filter(Domain.name.in_(domain_names), Domain.is_active == True).all()
+        active_domain_names = [d.name for d in active_domains]
+
+        for i in range(0, len(active_domain_names), batch_size):
+            batch = active_domain_names[i:i+batch_size]
+            tasks = [self.fetch_orderbook(name) for name in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for name, result in zip(batch, results):
+                if isinstance(result, Exception):
+                    continue
+
+                try:
+                    bids = result.get('bids') or []
+                    asks = result.get('asks') or []
+                    for p, s in bids[:10]:
+                        self.persist_snapshot(db, name, 'BUY', Decimal(str(p)), Decimal(str(s)))
+                        collected += 1
+                    for p, s in asks[:10]:
+                        self.persist_snapshot(db, name, 'SELL', Decimal(str(p)), Decimal(str(s)))
+                        collected += 1
+
+                    for dom in active_domains:
+                        if dom.name == name:
+                            dom.last_orderbook_snapshot_at = datetime.now(timezone.utc)
+                            break
+                except Exception:
+                    # swallow per-domain processing errors
+                    pass
         db.commit()
         return {"snapshots": collected}
 
