@@ -135,40 +135,23 @@ class DomaSubgraphService:
     async def get_domain_details(self, domain_name: str) -> Optional[Dict[str, Any]]:
         """
         Phase 2: Domain Analysis
-        Fetch detailed information about a specific domain
+        Fetch detailed information about a specific domain from fractional tokens
         """
-        query = """
-        query GetNameDetails($domainName: String!) {
-          names(name: $domainName) {
-            items {
-              name
-              expiresAt
-              activeOffersCount
-              highestOffer {
-                price
-                maker
-              }
-              fractionalTokenInfo {
-                address
-                currentPrice
-                totalSupply
-                symbol
-              }
-              metadata {
-                tld
-                length
-                keywords
-                premium
-              }
-            }
-          }
-        }
-        """
-        
         try:
-            data = await self.query_subgraph(query, {"domainName": domain_name})
-            items = data.get("names", {}).get("items", [])
-            return items[0] if items else None
+            tokens = await self.get_all_fractional_tokens()
+            # Find the token matching this domain name
+            for token in tokens:
+                if token.get("name", "").lower() == domain_name.lower():
+                    return {
+                        "name": token["name"],
+                        "fractionalTokenInfo": {
+                            "address": token["address"],
+                            "currentPrice": token.get("currentPrice"),
+                            "totalSupply": token.get("params", {}).get("totalSupply"),
+                            "symbol": token.get("params", {}).get("symbol")
+                        }
+                    }
+            return None
         except Exception as e:
             logger.error(f"Failed to fetch domain details for {domain_name}: {e}")
             return None
@@ -180,25 +163,12 @@ class DomaSubgraphService:
     
     async def get_active_domains(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
-        Get a list of active domains from the subgraph, defined as domains with active offers.
-        """
-        query = """
-        query GetActiveDomains($limit: Int!) {
-          domains(where: { activeOffersCount_gt: 0 }, first: $limit, orderBy: activeOffersCount, orderDirection: desc) {
-            name
-            activeOffersCount
-            highestOffer {
-              price
-            }
-            fractionalTokenInfo {
-              currentPrice
-            }
-          }
-        }
+        Get a list of active domains from fractional tokens.
         """
         try:
-            data = await self.query_subgraph(query, {"limit": limit})
-            return data.get("domains", [])
+            tokens = await self.get_all_fractional_tokens()
+            # Return domain names from fractional tokens
+            return [{"name": t["name"]} for t in tokens[:limit]]
         except Exception as e:
             logger.error(f"Failed to fetch active domains: {e}")
             return []

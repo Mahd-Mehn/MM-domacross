@@ -53,8 +53,8 @@ class OrderbookSnapshotService:
 
     async def snapshot_once(self, db: Session, domain_names: List[str], batch_size: int = 10) -> Dict[str, Any]:
         collected = 0
-        active_domains = db.query(Domain).filter(Domain.name.in_(domain_names), Domain.is_active == True).all()
-        active_domain_names = [d.name for d in active_domains]
+        # Just use the provided domain names directly - no is_active filter
+        active_domain_names = domain_names
 
         for i in range(0, len(active_domain_names), batch_size):
             batch = active_domain_names[i:i+batch_size]
