@@ -148,7 +148,7 @@ async def lifespan(app_: FastAPI):
         logger.info("[backfill] loop started interval=%ss", interval)
         while True:
             try:
-                result = backfill_service.run_once(lookback_minutes=24*60, limit=200)
+                result = await backfill_service.run_once(lookback_minutes=24*60, limit=200)
                 if result.get("updated"):
                     logger.info("[backfill] updated=%s", result.get("updated"))
             except Exception:

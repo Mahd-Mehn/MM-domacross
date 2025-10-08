@@ -96,21 +96,14 @@ class ExternalIdBackfillService:
                 except Exception:
                     pass
 
-    def run_once(self, lookback_minutes: int = 1440, limit: int = 200) -> dict[str, int | str]:
+    async def run_once(self, lookback_minutes: int = 1440, limit: int = 200) -> dict[str, int | str]:
         self.last_run = datetime.now(timezone.utc)
         db: Session = SessionLocal()
         updated = 0
         scanned = 0
         try:
-            # build / refresh mapping (synchronous usage of async helper via loop if needed)
-            try:
-                import asyncio as _a
-                _a.run(self._build_tx_order_mapping(db))
-            except RuntimeError:
-                # inside event loop - run synchronously by blocking
-                import asyncio as _a2
-                loop = _a2.get_event_loop()
-                loop.run_until_complete(self._build_tx_order_mapping(db))
+            # build / refresh mapping (async execution)
+            await self._build_tx_order_mapping(db)
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
             listings = db.query(Listing).filter(Listing.external_order_id == None, Listing.created_at >= cutoff).limit(limit).all()  # noqa: E711
             offers = db.query(Offer).filter(Offer.external_order_id == None, Offer.created_at >= cutoff).limit(limit).all()  # noqa: E711
