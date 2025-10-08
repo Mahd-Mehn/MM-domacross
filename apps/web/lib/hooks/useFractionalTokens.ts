@@ -31,13 +31,8 @@ export function useFractionalTokens() {
   return useQuery({
     queryKey: ['fractional-tokens'],
     queryFn: async () => {
-      // Try the simple endpoint first
-      let response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/fractional-tokens`);
-      
-      // Fallback to the full path if simple endpoint fails
-      if (!response.ok) {
-        response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/doma/fractional/tokens/all`);
-      }
+      // Use the correct Doma fractional tokens endpoint
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/doma/fractional/tokens?force_refresh=false`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch fractional tokens');
@@ -46,10 +41,10 @@ export function useFractionalTokens() {
       const data = await response.json();
       
       // Handle both response formats
-      if (data.tokens) {
-        return data as FractionalTokensResponse;
-      } else if (Array.isArray(data)) {
+      if (Array.isArray(data)) {
         return { tokens: data, total: data.length };
+      } else if (data.tokens) {
+        return data as FractionalTokensResponse;
       }
       
       return data as FractionalTokensResponse;
@@ -63,12 +58,13 @@ export function useFractionalToken(domainName: string) {
   return useQuery<FractionalToken | null>({
     queryKey: ['fractional-token', domainName],
     queryFn: async () => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/fractional-tokens`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/doma/fractional/tokens?force_refresh=false`);
       if (!response.ok) {
         throw new Error('Failed to fetch fractional tokens');
       }
-      const data: FractionalTokensResponse = await response.json();
-      return data.tokens.find(t => t.domain_name.toLowerCase() === domainName.toLowerCase()) || null;
+      const data = await response.json();
+      const tokens = Array.isArray(data) ? data : data.tokens || [];
+      return tokens.find((t: FractionalToken) => t.domain_name.toLowerCase() === domainName.toLowerCase()) || null;
     },
     enabled: !!domainName,
     staleTime: 30000,
