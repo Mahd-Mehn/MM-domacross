@@ -1,13 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.deps import get_db
+from fastapi import APIRouter, HTTPException
 from app.services.doma_subgraph_service import doma_subgraph_service
 from app.services.orderbook_snapshot_service import orderbook_snapshot_service
 
 router = APIRouter()
 
 @router.get("/debug/domain-data", tags=["Debug"])
-async def get_domain_debug_data(domain_name: str, db: Session = Depends(get_db)):
+async def get_domain_debug_data(domain_name: str):
     """
     Provides a consolidated debug view of a domain's data from various sources.
     """
