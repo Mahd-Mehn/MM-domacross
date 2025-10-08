@@ -317,3 +317,46 @@ async def get_fractional_tokens_simple(
         result.append(token_dict)
     
     return {"tokens": result, "total": len(result)}
+
+
+# Also add to main router for direct access
+@router.get("/tokens/all")
+async def get_all_tokens_direct(
+    db: Session = Depends(get_db)
+):
+    """
+    Direct endpoint to get all fractional tokens
+    Returns simplified format for frontend consumption
+    """
+    tokens = db.query(FractionalToken).all()
+    
+    result = []
+    for token in tokens:
+        latest_val = db.query(DomainValuation).filter(
+            DomainValuation.domain_name == token.domain_name
+        ).order_by(DomainValuation.calculated_at.desc()).first()
+        
+        token_dict = {
+            "id": token.id,
+            "token_address": token.token_address,
+            "domain_name": token.domain_name,
+            "symbol": token.symbol,
+            "name": token.name,
+            "decimals": token.decimals,
+            "total_supply": str(token.total_supply),
+            "current_price_usd": str(token.current_price_usd or 0),
+            "fractionalized_at": token.fractionalized_at.isoformat() if token.fractionalized_at else None,
+            "minimum_buyout_price": str(token.minimum_buyout_price) if token.minimum_buyout_price else None,
+            "is_bought_out": token.is_bought_out,
+            "image_url": token.image_url,
+            "description": token.description,
+            "website": token.website,
+            "twitter_link": token.twitter_link,
+            "doma_rank_score": float(latest_val.doma_rank_score) if latest_val else None,
+            "oracle_price_usd": str(latest_val.oracle_price_usd) if latest_val else None,
+            "created_at": token.created_at.isoformat() if token.created_at else None,
+            "updated_at": token.updated_at.isoformat() if token.updated_at else None
+        }
+        result.append(token_dict)
+    
+    return {"tokens": result, "total": len(result)}

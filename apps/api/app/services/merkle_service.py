@@ -64,12 +64,22 @@ class MerkleService:
         curr = leaf
         level = 0
         while True:
-            node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).first()
+            node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).with_for_update().first()
             if node is None:
-                # Use merge to handle potential race conditions
-                new_node = MerkleAccumulator(level=level, node_hash='0x'+curr.hex())
-                db.merge(new_node)
-                break
+                # Check one more time after acquiring lock to avoid race condition
+                node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).first()
+                if node is None:
+                    new_node = MerkleAccumulator(level=level, node_hash='0x'+curr.hex())
+                    db.add(new_node)
+                    break
+                else:
+                    # Node was created by another transaction, continue with combine
+                    existing = bytes.fromhex(node.node_hash[2:])
+                    curr = sha256(existing + curr).digest()
+                    db.delete(node)
+                    db.flush()
+                    level += 1
+                    continue
             else:
                 existing = bytes.fromhex(node.node_hash[2:])
                 # combine and clear this level (simulate carry)

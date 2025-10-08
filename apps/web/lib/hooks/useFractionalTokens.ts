@@ -24,17 +24,34 @@ export interface FractionalTokensResponse {
 }
 
 export function useFractionalTokens() {
-  return useQuery<FractionalTokensResponse>({
+  return useQuery({
     queryKey: ['fractional-tokens'],
     queryFn: async () => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/fractional-tokens`);
+      // Try the simple endpoint first
+      let response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/fractional-tokens`);
+      
+      // Fallback to the full path if simple endpoint fails
+      if (!response.ok) {
+        response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/v1/doma/fractional/tokens/all`);
+      }
+      
       if (!response.ok) {
         throw new Error('Failed to fetch fractional tokens');
       }
-      return response.json();
+      
+      const data = await response.json();
+      
+      // Handle both response formats
+      if (data.tokens) {
+        return data as FractionalTokensResponse;
+      } else if (Array.isArray(data)) {
+        return { tokens: data, total: data.length };
+      }
+      
+      return data as FractionalTokensResponse;
     },
-    staleTime: 30000, // 30 seconds
-    refetchInterval: 60000, // Refetch every minute
+    staleTime: 60000, // Consider data fresh for 1 minute
+    refetchInterval: 60000, // Auto-refetch every minute
   });
 }
 
