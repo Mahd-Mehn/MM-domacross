@@ -7,6 +7,7 @@ import { TrendingUp, TrendingDown, Activity, DollarSign, BarChart3, AlertCircle 
 import { useOrderbookSdk } from '../../lib/orderbook/client';
 import { useAlert } from '../ui/Alert';
 import { getDeFiService } from '../../lib/defi/defiService';
+import { useFractionalTokens } from '../../lib/hooks/useFractionalTokens';
 import type { FuturesContract, FuturesPosition, FuturesOrder, OrderBookEntry } from '../../lib/defi/types';
 
 interface OrderBookProps {
@@ -76,6 +77,7 @@ export default function FuturesTrading() {
   const sdk = useOrderbookSdk();
   const { showAlert } = useAlert();
   const defiService = getDeFiService();
+  const { data: fractionalTokensData, isLoading: tokensLoading } = useFractionalTokens();
   
   const [selectedContract, setSelectedContract] = useState<FuturesContract | null>(null);
   const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop'>('market');
@@ -87,78 +89,110 @@ export default function FuturesTrading() {
   const [orders, setOrders] = useState<FuturesOrder[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Mock data
-  const mockContracts: FuturesContract[] = [
-    {
-      id: '1',
-      domainName: 'crypto.eth',
-      expiryDate: new Date('2025-12-31'),
-      strikePrice: parseEther('5'),
-      currentPrice: parseEther('5.2'),
-      volume24h: parseEther('1250'),
-      openInterest: parseEther('450'),
-      fundingRate: 0.01,
-      markPrice: parseEther('5.21'),
-      indexPrice: parseEther('5.19'),
-      contractType: 'perpetual',
-    },
-    {
-      id: '2',
-      domainName: 'defi.eth',
-      expiryDate: new Date('2025-12-31'),
-      strikePrice: parseEther('3'),
-      currentPrice: parseEther('3.1'),
-      volume24h: parseEther('850'),
-      openInterest: parseEther('320'),
-      fundingRate: 0.008,
-      markPrice: parseEther('3.11'),
-      indexPrice: parseEther('3.09'),
-      contractType: 'perpetual',
-    },
-  ];
+  // Convert fractional tokens to futures contracts (ONLY source of contracts)
+  const allContracts: FuturesContract[] = (fractionalTokensData?.tokens || []).map((token, index) => {
+    const priceUsd = parseFloat(token.current_price_usd || '0');
+    const priceEth = priceUsd / 2000; // Assume $2000/ETH
+    const priceWei = parseEther(priceEth.toFixed(18));
+    
+    // Add slight variation for mark and index prices
+    const markPriceWei = parseEther((priceEth * 1.002).toFixed(18));
+    const indexPriceWei = parseEther((priceEth * 0.998).toFixed(18));
+    
+    return {
+      id: `token-${token.token_address}`,
+      domainName: token.domain_name,
+      expiryDate: new Date('2025-12-31'), // Perpetual
+      strikePrice: priceWei,
+      currentPrice: priceWei,
+      markPrice: markPriceWei,
+      indexPrice: indexPriceWei,
+      volume24h: parseEther((Math.random() * 100).toFixed(2)), // Simulated volume
+      openInterest: parseEther(token.total_supply || '0'),
+      fundingRate: 0.0001 + (Math.random() * 0.0002), // 0.01% - 0.03%
+      isPerpetual: true,
+      contractType: 'perpetual' as const,
+      tokenAddress: token.token_address
+    };
+  });
 
-  const mockOrderBook = {
-    bids: [
-      { price: parseEther('5.19'), size: parseEther('10'), total: parseEther('51.9') },
-      { price: parseEther('5.18'), size: parseEther('15'), total: parseEther('77.7') },
-      { price: parseEther('5.17'), size: parseEther('20'), total: parseEther('103.4') },
-      { price: parseEther('5.16'), size: parseEther('25'), total: parseEther('129') },
-      { price: parseEther('5.15'), size: parseEther('30'), total: parseEther('154.5') },
-    ],
-    asks: [
-      { price: parseEther('5.21'), size: parseEther('12'), total: parseEther('62.52') },
-      { price: parseEther('5.22'), size: parseEther('18'), total: parseEther('93.96') },
-      { price: parseEther('5.23'), size: parseEther('22'), total: parseEther('115.06') },
-      { price: parseEther('5.24'), size: parseEther('28'), total: parseEther('146.72') },
-      { price: parseEther('5.25'), size: parseEther('35'), total: parseEther('183.75') },
-    ],
+  // Generate orderbook from selected contract
+  const generateOrderBook = (contract: FuturesContract | null) => {
+    if (!contract) {
+      return { bids: [], asks: [] };
+    }
+
+    const currentPrice = Number(formatEther(contract.currentPrice));
+    const bids: OrderBookEntry[] = [];
+    const asks: OrderBookEntry[] = [];
+
+    // Generate 5 bid levels (below current price)
+    for (let i = 0; i < 5; i++) {
+      const priceOffset = (i + 1) * 0.001; // 0.1% steps
+      const price = parseEther((currentPrice * (1 - priceOffset)).toFixed(18));
+      const size = parseEther((10 + Math.random() * 20).toFixed(2));
+      const total = BigInt(Number(price) * Number(size));
+      bids.push({ price, size, total });
+    }
+
+    // Generate 5 ask levels (above current price)
+    for (let i = 0; i < 5; i++) {
+      const priceOffset = (i + 1) * 0.001; // 0.1% steps
+      const price = parseEther((currentPrice * (1 + priceOffset)).toFixed(18));
+      const size = parseEther((10 + Math.random() * 20).toFixed(2));
+      const total = BigInt(Number(price) * Number(size));
+      asks.push({ price, size, total });
+    }
+
+    return { bids, asks };
   };
 
-  const mockPositions: FuturesPosition[] = [
-    {
-      id: '1',
-      trader: address || '0x0',
-      contractId: '1',
-      domainName: 'crypto.eth',
-      side: 'long',
-      size: parseEther('2'),
-      entryPrice: parseEther('5.0'),
-      markPrice: parseEther('5.2'),
-      unrealizedPnl: parseEther('0.4'),
-      realizedPnl: parseEther('0'),
-      margin: parseEther('1'),
-      leverage: 5,
-      liquidationPrice: parseEther('4.5'),
-      createdAt: new Date(),
-    },
-  ];
+  const orderBook = generateOrderBook(selectedContract);
+
+  // Generate positions from fractional tokens (user's holdings)
+  const generatePositions = (): FuturesPosition[] => {
+    if (!address || !fractionalTokensData?.tokens) return [];
+
+    // Simulate user having positions in first 2 tokens
+    return fractionalTokensData.tokens.slice(0, 2).map((token, index) => {
+      const priceUsd = parseFloat(token.current_price_usd || '0');
+      const priceEth = priceUsd / 2000;
+      const entryPriceEth = priceEth * (0.95 + Math.random() * 0.1);
+      const currentPriceWei = parseEther(priceEth.toFixed(18));
+      const entryPriceWei = parseEther(entryPriceEth.toFixed(18));
+      const sizeWei = parseEther((Math.random() * 5 + 1).toFixed(2));
+      const leverageNum = 2 + Math.floor(Math.random() * 3);
+      
+      const pnl = (priceEth - entryPriceEth) * Number(formatEther(sizeWei));
+      const unrealizedPnl = parseEther(pnl.toFixed(18));
+
+      return {
+        id: `pos-${token.token_address}-${index}`,
+        trader: address,
+        contractId: `token-${token.token_address}`,
+        domainName: token.domain_name,
+        side: index % 2 === 0 ? 'long' as const : 'short' as const,
+        size: sizeWei,
+        entryPrice: entryPriceWei,
+        markPrice: currentPriceWei,
+        unrealizedPnl,
+        realizedPnl: parseEther('0'),
+        margin: parseEther((Number(formatEther(sizeWei)) * priceEth / leverageNum).toFixed(18)),
+        leverage: leverageNum,
+        liquidationPrice: parseEther((entryPriceEth * 0.7).toFixed(18)),
+        createdAt: new Date(),
+      };
+    });
+  };
 
   useEffect(() => {
-    setSelectedContract(mockContracts[0]);
-    if (address) {
-      setPositions(mockPositions);
+    if (allContracts.length > 0) {
+      setSelectedContract(allContracts[0]);
     }
-  }, [address]);
+    if (address) {
+      setPositions(generatePositions());
+    }
+  }, [address, fractionalTokensData]);
 
   const handleOpenPosition = async () => {
     if (!address || !selectedContract || !size || !walletClient) return;
@@ -225,10 +259,16 @@ export default function FuturesTrading() {
     <div className="space-y-6">
       {/* Contract Selector */}
       <div className="bg-slate-900/50 backdrop-blur-sm rounded-lg border border-white/10 p-6">
-        <h2 className="text-xl font-bold text-white mb-4">Perpetual Futures</h2>
+        <h2 className="text-xl font-bold text-white mb-4 flex items-center justify-between">
+          <span>Perpetual Futures</span>
+          {tokensLoading && <span className="text-sm text-slate-400">Loading tokens...</span>}
+          {!tokensLoading && allContracts.length > 0 && (
+            <span className="text-sm text-green-400">{allContracts.length} fractional tokens available</span>
+          )}
+        </h2>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          {mockContracts.map((contract) => (
+          {allContracts.map((contract) => (
             <button
               key={contract.id}
               onClick={() => setSelectedContract(contract)}
@@ -395,8 +435,8 @@ export default function FuturesTrading() {
 
             {/* Order Book */}
             <OrderBook
-              bids={mockOrderBook.bids}
-              asks={mockOrderBook.asks}
+              bids={orderBook.bids}
+              asks={orderBook.asks}
               currentPrice={selectedContract.markPrice}
             />
 

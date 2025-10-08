@@ -3,8 +3,25 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useWalletClient } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
+import {
+  Globe,
+  TrendingUp,
+  Tag,
+  Zap,
+  Plus,
+  ShoppingCart,
+  DollarSign,
+  Clock,
+  Eye,
+  MessageCircle,
+  CheckCircle,
+  XCircle,
+  AlertCircle
+} from 'lucide-react';
+import { useAlert } from '../ui/Alert';
+import { getDeFiService, SUPPORTED_CHAINS, type SupportedChainId, type DomainListing, type DomainOffer } from '../../lib/defi/defiService';
+import Link from 'next/link';
 
-// Helper function to safely convert price strings to BigInt
 const safePriceToBigInt = (price: string | number): bigint => {
   try {
     if (typeof price === 'number') {
@@ -21,20 +38,6 @@ const safePriceToBigInt = (price: string | number): bigint => {
     return BigInt(0);
   }
 };
-import { 
-  ShoppingCart, 
-  Tag, 
-  TrendingUp, 
-  Clock, 
-  DollarSign, 
-  Globe,
-  Zap,
-  CheckCircle,
-  XCircle,
-  AlertCircle
-} from 'lucide-react';
-import { useAlert } from '../ui/Alert';
-import { getDeFiService, SUPPORTED_CHAINS, type SupportedChainId, type DomainListing, type DomainOffer } from '../../lib/defi/defiService';
 
 interface MarketplaceStats {
   totalTransactions: number;
@@ -343,28 +346,66 @@ export default function DomainMarketplace() {
               <p className="text-slate-400">No listings available</p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {listings.map((listing, index) => (
-                <div key={`${listing.orderId}-${listing.contract}-${listing.tokenId}-${index}`} className="bg-slate-800/50 rounded-lg p-4 border border-white/5">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <p className="text-white font-medium">{listing.tokenId}</p>
-                      <p className="text-sm text-slate-400">{listing.contract.slice(0, 10)}...</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-white">{formatEther(safePriceToBigInt(listing.price))} {listing.currency}</p>
-                      <p className="text-xs text-slate-400">by {listing.seller.slice(0, 8)}...</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleBuyListing(listing.orderId)}
-                    disabled={loading || !isConnected}
-                    className="w-full bg-brand-500 hover:bg-brand-600 disabled:bg-slate-700 disabled:text-slate-500 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {listings.map((listing, index) => {
+                const priceInEth = formatEther(safePriceToBigInt(listing.price));
+                const formattedPrice = parseFloat(priceInEth) > 1000 
+                  ? `${(parseFloat(priceInEth) / 1000).toFixed(2)}K`
+                  : parseFloat(priceInEth).toFixed(4);
+                
+                return (
+                  <Link 
+                    key={`${listing.orderId}-${listing.contract}-${listing.tokenId}-${index}`}
+                    href={`/marketplace/${listing.contract}/${listing.tokenId}`}
+                    className="bg-slate-800/50 rounded-lg p-4 border border-white/5 hover:border-brand-500/50 transition-all hover:scale-105 cursor-pointer group"
                   >
-                    {loading ? 'Processing...' : 'Buy Now'}
-                  </button>
-                </div>
-              ))}
+                    <div className="mb-3">
+                      <p className="text-white font-semibold text-lg group-hover:text-brand-400 transition-colors truncate">{listing.tokenId}</p>
+                      <p className="text-xs text-slate-500 font-mono truncate">{listing.contract.slice(0, 10)}...{listing.contract.slice(-8)}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-slate-400">Price</span>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-white">{formattedPrice} <span className="text-sm text-slate-400">{listing.currency}</span></p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500">~0 offers</span>
+                        <span className="text-slate-500 flex items-center gap-1">
+                          <Eye className="w-3 h-3" />
+                          Recently
+                        </span>
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Chat functionality placeholder
+                          }}
+                          className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-1.5 px-3 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                        >
+                          <MessageCircle className="w-3 h-3" />
+                          Chat
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // View functionality - will navigate to detail page
+                            window.location.href = `/marketplace/${listing.contract}/${listing.tokenId}`;
+                          }}
+                          className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-1.5 px-3 rounded text-xs font-medium transition-colors flex items-center justify-center gap-1"
+                        >
+                          <Eye className="w-3 h-3" />
+                          View
+                        </button>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

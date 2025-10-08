@@ -102,7 +102,7 @@ export default function ConsolidatedMarketplacePage() {
             offers_count: 2,
             listings_count: 1,
             last_activity: new Date().toISOString(),
-            url: '/marketplace/protocol.eth',
+            url: '/marketplace/0x1234567890123456789012345678901234567890/protocol.eth',
             uniqueId: 'sdk-protocol-eth'
           },
           {
@@ -112,7 +112,7 @@ export default function ConsolidatedMarketplacePage() {
             offers_count: 1,
             listings_count: 1,
             last_activity: new Date().toISOString(),
-            url: '/marketplace/blockchain.eth',
+            url: '/marketplace/0x1234567890123456789012345678901234567891/blockchain.eth',
             uniqueId: 'sdk-blockchain-eth'
           },
           {
@@ -122,7 +122,7 @@ export default function ConsolidatedMarketplacePage() {
             offers_count: 3,
             listings_count: 1,
             last_activity: new Date().toISOString(),
-            url: '/marketplace/smart.eth',
+            url: '/marketplace/0x1234567890123456789012345678901234567892/smart.eth',
             uniqueId: 'sdk-smart-eth'
           }
         ];
@@ -150,7 +150,7 @@ export default function ConsolidatedMarketplacePage() {
             offers_count: 3,
             listings_count: 1,
             last_activity: new Date().toISOString(),
-            url: '/marketplace/crypto.eth',
+            url: '/marketplace/0x1234567890123456789012345678901234567893/crypto.eth',
             uniqueId: 'mock-crypto-eth'
           },
           {
@@ -160,7 +160,7 @@ export default function ConsolidatedMarketplacePage() {
             offers_count: 2,
             listings_count: 1,
             last_activity: new Date().toISOString(),
-            url: '/marketplace/defi.eth',
+            url: '/marketplace/0x1234567890123456789012345678901234567894/defi.eth',
             uniqueId: 'mock-defi-eth'
           },
           {
@@ -170,7 +170,7 @@ export default function ConsolidatedMarketplacePage() {
             offers_count: 5,
             listings_count: 1,
             last_activity: new Date().toISOString(),
-            url: '/marketplace/web3.eth',
+            url: '/marketplace/0x1234567890123456789012345678901234567895/web3.eth',
             uniqueId: 'mock-web3-eth'
           }
         ];

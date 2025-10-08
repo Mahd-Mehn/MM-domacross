@@ -14,6 +14,10 @@ export interface FractionalToken {
   description?: string;
   website?: string;
   twitter_link?: string;
+  doma_rank_score?: number;
+  oracle_price_usd?: string;
+  minimum_buyout_price?: string;
+  is_bought_out?: boolean;
   created_at: string;
   updated_at: string;
 }
