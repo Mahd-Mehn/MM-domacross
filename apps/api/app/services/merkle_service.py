@@ -66,13 +66,16 @@ class MerkleService:
         while True:
             node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).first()
             if node is None:
-                db.add(MerkleAccumulator(level=level, node_hash='0x'+curr.hex()))
+                # Use merge to handle potential race conditions
+                new_node = MerkleAccumulator(level=level, node_hash='0x'+curr.hex())
+                db.merge(new_node)
                 break
             else:
                 existing = bytes.fromhex(node.node_hash[2:])
                 # combine and clear this level (simulate carry)
                 curr = sha256(existing + curr).digest()
                 db.delete(node)
+                db.flush()  # Ensure delete is processed before moving to next level
                 level += 1
                 continue
 

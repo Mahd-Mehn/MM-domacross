@@ -16,6 +16,9 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/doma/fractional", tags=["Doma Fractional Tokens"])
 
+# Create a secondary router for simpler endpoint access
+simple_router = APIRouter(tags=["Fractional Tokens"])
+
 
 class FractionalTokenResponse(BaseModel):
     token_address: str
@@ -270,3 +273,47 @@ async def get_domain_trading_history(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch trading history: {str(e)}")
+
+
+# Simple alias endpoint for easier frontend access
+@simple_router.get("/fractional-tokens")
+async def get_fractional_tokens_simple(
+    db: Session = Depends(get_db)
+):
+    """
+    Simple endpoint to get all fractional tokens
+    Alias for /doma/fractional/tokens for easier frontend integration
+    """
+    tokens = db.query(FractionalToken).all()
+    
+    result = []
+    for token in tokens:
+        # Get latest valuation
+        latest_val = db.query(DomainValuation).filter(
+            DomainValuation.domain_name == token.domain_name
+        ).order_by(DomainValuation.calculated_at.desc()).first()
+        
+        token_dict = {
+            "id": token.id,
+            "token_address": token.token_address,
+            "domain_name": token.domain_name,
+            "symbol": token.symbol,
+            "name": token.name,
+            "decimals": token.decimals,
+            "total_supply": str(token.total_supply),
+            "current_price_usd": str(token.current_price_usd or 0),
+            "fractionalized_at": token.fractionalized_at.isoformat() if token.fractionalized_at else None,
+            "minimum_buyout_price": str(token.minimum_buyout_price) if token.minimum_buyout_price else None,
+            "is_bought_out": token.is_bought_out,
+            "image_url": token.image_url,
+            "description": token.description,
+            "website": token.website,
+            "twitter_link": token.twitter_link,
+            "doma_rank_score": float(latest_val.doma_rank_score) if latest_val else None,
+            "oracle_price_usd": str(latest_val.oracle_price_usd) if latest_val else None,
+            "created_at": token.created_at.isoformat() if token.created_at else None,
+            "updated_at": token.updated_at.isoformat() if token.updated_at else None
+        }
+        result.append(token_dict)
+    
+    return {"tokens": result, "total": len(result)}

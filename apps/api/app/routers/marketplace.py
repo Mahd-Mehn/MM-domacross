@@ -17,6 +17,10 @@ from app.broadcast import get_sync_broadcast
 
 router = APIRouter()
 
+# In-memory storage for demo listings (will be replaced by database)
+DOMAIN_LISTINGS = {}
+DOMAIN_OFFERS = {}
+
 # Pydantic models for marketplace transactions
 class MarketplaceTransactionRequest(BaseModel):
     id: str
@@ -224,22 +228,47 @@ async def search_domain_listings(
         # Note: Frontend will use Doma SDK to fetch additional marketplace data
         # and combine it with this backend data for a complete view
         
-        # Priority 3: Fallback to seeded domain data if both database and SDK fail
+        # Priority 3: Fallback to fractional tokens if database has no listings
         if len(listings_response) == 0:
-            # Use actual seeded domain data instead of generic mock data
-            seeded_domains = [
-                {
-                    "orderId": f"seeded_crypto_{datetime.now().timestamp()}",
-                    "contract": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
-                    "tokenId": "123456789",
-                    "price": "5000000000000000000",  # 5 ETH
-                    "seller": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-                    "currency": "ETH",
-                    "expirationTime": None,
-                    "chainId": chain,
-                    "status": "active",
-                    "domainName": "crypto"
-                },
+            from app.models.database import FractionalToken
+            
+            # Get fractional tokens as listings
+            fractional_tokens = db.query(FractionalToken).limit(10).all()
+            
+            for token in fractional_tokens:
+                # Convert token price to wei (assuming price is in USD, use a conversion rate)
+                # For demo, use $2000/ETH conversion rate
+                price_eth = float(token.current_price_usd or 0) / 2000
+                price_wei = int(price_eth * 1e18)
+                
+                listings_response.append(DomainListingResponse(
+                    orderId=f"fractional_{token.token_address}_{datetime.now().timestamp()}",
+                    contract=token.token_address,
+                    tokenId=token.domain_name,
+                    price=str(price_wei),
+                    seller=token.token_address[:42],  # Use token address as seller
+                    currency="ETH",
+                    expirationTime=None,
+                    chainId=chain,
+                    status="active",
+                    domainName=token.domain_name
+                ))
+            
+            # If still no tokens, use minimal fallback
+            if len(listings_response) == 0:
+                seeded_domains = [
+                    {
+                        "orderId": f"seeded_crypto_{datetime.now().timestamp()}",
+                        "contract": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+                        "tokenId": "123456789",
+                        "price": "5000000000000000000",  # 5 ETH
+                        "seller": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+                        "currency": "ETH",
+                        "expirationTime": None,
+                        "chainId": chain,
+                        "status": "active",
+                        "domainName": "crypto"
+                    },
                 {
                     "orderId": f"seeded_defi_{datetime.now().timestamp()}",
                     "contract": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
@@ -324,28 +353,28 @@ async def search_domain_listings(
                     "status": "active",
                     "domainName": "exchange"
                 },
-                {
-                    "orderId": f"seeded_wallet_{datetime.now().timestamp()}",
-                    "contract": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
-                    "tokenId": "1023456789",
-                    "price": "6000000000000000000",  # 6 ETH
-                    "seller": "0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB",
-                    "currency": "ETH",
-                    "expirationTime": None,
-                    "chainId": chain,
-                    "status": "active",
-                    "domainName": "wallet"
-                }
-            ]
-            
-            # Apply filters to seeded data
-            filtered_listings = seeded_domains
-            if min_price:
-                filtered_listings = [l for l in filtered_listings if int(l["price"]) >= int(min_price)]
-            if max_price:
-                filtered_listings = [l for l in filtered_listings if int(l["price"]) <= int(max_price)]
-            
-            listings_response = [DomainListingResponse(**listing) for listing in filtered_listings]
+                    {
+                        "orderId": f"seeded_wallet_{datetime.now().timestamp()}",
+                        "contract": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+                        "tokenId": "1023456789",
+                        "price": "6000000000000000000",  # 6 ETH
+                        "seller": "0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB",
+                        "currency": "ETH",
+                        "expirationTime": None,
+                        "chainId": chain,
+                        "status": "active",
+                        "domainName": "wallet"
+                    }
+                ]
+                
+                # Apply filters to seeded data
+                filtered_listings = seeded_domains
+                if min_price:
+                    filtered_listings = [l for l in filtered_listings if int(l["price"]) >= int(min_price)]
+                if max_price:
+                    filtered_listings = [l for l in filtered_listings if int(l["price"]) <= int(max_price)]
+                
+                listings_response = [DomainListingResponse(**listing) for listing in filtered_listings]
         
         return listings_response
         

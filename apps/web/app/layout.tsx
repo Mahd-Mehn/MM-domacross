@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { MobileNav } from "@/components/MobileNav";
 import { AdminNav } from "@/components/AdminNav";
 import ClientConnectWallet from "@/components/ClientConnectWallet";
+import { SyncScheduleNotification } from "@/components/SyncScheduleNotification";
 export const metadata = {
   title: "DomaCross",
   description: "Cross-chain domain trading competitions",
@@ -48,6 +49,7 @@ export default function RootLayout({
                 {children}
               </div>
             </main>
+            <SyncScheduleNotification />
             <footer className="mt-16 border-t border-white/5 py-10 text-center text-xs text-slate-500">
               <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
                 <ClientYear />

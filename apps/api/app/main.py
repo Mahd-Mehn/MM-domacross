@@ -3,7 +3,7 @@ from fastapi import FastAPI, WebSocket
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from .routers import health, auth, competitions, users, portfolio, poll, domains, valuation, market, etf, seasons, settlement, incentives, policy, orderfeed, defi, marketplace, debug
-from .routers import prize_escrow, baskets, governance, doma_fractional
+from .routers import prize_escrow, baskets, governance, doma_fractional, sync_status
 try:
     from app.services.incentive_service import incentive_service  # type: ignore
 except Exception:  # pragma: no cover
@@ -80,8 +80,8 @@ async def lifespan(app_: FastAPI):
         logger.exception("[security] Ephemeral key detection failed")
     # Optionally start background poller
     async def poll_loop():
-        interval = 10
-        logger.info("[poll] background poller started interval=%ss", interval)
+        interval = 21600  # 6 hours - runs 4 times per day
+        logger.info("[poll] background poller started interval=%ss (4x daily)", interval)
         while True:
             try:
                 await doma_poll_service.run_once(limit=50)
@@ -128,8 +128,8 @@ async def lifespan(app_: FastAPI):
     async def reconcile_loop():
         if not settings.doma_orderbook_base_url:
             return
-        interval = max(60, settings.reconciliation_interval_seconds)
-        logger.info("[reconcile] loop started interval=%ss", interval)
+        interval = 21600  # 6 hours - runs 4 times per day
+        logger.info("[reconcile] loop started interval=%ss (4x daily)", interval)
         while True:
             try:
                 await reconciliation_service.run_once(limit=300)
@@ -144,8 +144,8 @@ async def lifespan(app_: FastAPI):
         This is a placeholder until richer mapping logic (e.g., orderbook API lookup) is added.
         Runs less frequently to reduce churn.
         """
-        interval = 900  # 15 minutes
-        logger.info("[backfill] loop started interval=%ss", interval)
+        interval = 21600  # 6 hours - runs 4 times per day
+        logger.info("[backfill] loop started interval=%ss (4x daily)", interval)
         while True:
             try:
                 result = await backfill_service.run_once(lookback_minutes=24*60, limit=200)
@@ -156,8 +156,8 @@ async def lifespan(app_: FastAPI):
             await asyncio.sleep(interval)
 
     async def nav_loop():
-        interval = 300  # 5 minutes default NAV refresh for stale sets
-        logger.info("[nav] loop started interval=%ss", interval)
+        interval = 21600  # 6 hours - runs 4 times per day
+        logger.info("[nav] loop started interval=%ss (4x daily)", interval)
         while True:
             try:
                 nav_service.run_once(stale_seconds=600)
@@ -186,8 +186,8 @@ async def lifespan(app_: FastAPI):
             await asyncio.sleep(interval)
 
     async def fast_snapshot_loop():
-        interval = 60  # 1 minute for portfolio value & nav per-share snapshots
-        logger.info("[snapshot] loop started interval=%ss", interval)
+        interval = 21600  # 6 hours - runs 4 times per day
+        logger.info("[snapshot] loop started interval=%ss (4x daily)", interval)
         while True:
             try:
                 snapshot_service.snapshot_once()
@@ -208,8 +208,8 @@ async def lifespan(app_: FastAPI):
             await asyncio.sleep(interval)
 
     async def merkle_loop():
-        interval = 120  # every 2 minutes attempt incremental merkle snapshot
-        logger.info("[merkle] loop started interval=%ss", interval)
+        interval = 21600  # 6 hours - runs 4 times per day
+        logger.info("[merkle] loop started interval=%ss (4x daily)", interval)
         from app.database import SessionLocal as _SL
         while True:
             db = _SL()
@@ -219,6 +219,10 @@ async def lifespan(app_: FastAPI):
                     logger.info("[merkle] new snapshot root=%s events=%s", snap.merkle_root, snap.event_count)
             except Exception:
                 logger.exception("[merkle] snapshot loop error")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
             finally:
                 try:
                     db.close()
@@ -246,9 +250,9 @@ async def lifespan(app_: FastAPI):
             await asyncio.sleep(interval)
 
     async def incentive_loop():
-        interval = 90  # finalize ended incentive epochs roughly every 90s
+        interval = 21600  # 6 hours - runs 4 times per day
         from app.database import SessionLocal as _SL
-        logger.info("[incentive] loop started interval=%ss", interval)
+        logger.info("[incentive] loop started interval=%ss (4x daily)", interval)
         while True:
             db = _SL()
             try:
@@ -472,6 +476,8 @@ app.include_router(governance.router, prefix="/api/v1")
 app.include_router(defi.router, prefix="/api/v1/defi")
 app.include_router(marketplace.router, prefix="/api/v1")
 app.include_router(doma_fractional.router, prefix="/api/v1")
+app.include_router(doma_fractional.simple_router, prefix="/api/v1")  # Simple alias endpoints
+app.include_router(sync_status.router, prefix="/api/v1")
 app.include_router(debug.router, prefix="/api/v1")
 
 

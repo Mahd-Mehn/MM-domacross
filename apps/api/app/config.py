@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     
     # DomaRank Oracle
     enable_doma_rank_oracle: bool = Field(default=True, alias='ENABLE_DOMA_RANK_ORACLE')
-    doma_rank_update_interval_seconds: int = 600  # 10 minutes like DomaLend
+    doma_rank_update_interval_seconds: int = 21600  # 6 hours - runs 4 times per day
 
     # Ingestion feature flags
     enable_raw_chain_ingest: bool = False  # default to False to stay within official Doma Poll API surface
@@ -94,8 +94,8 @@ class Settings(BaseSettings):
     valuation_min_samples_trade: int = 2
     valuation_freshness_lambda: float = 0.00005
     valuation_dispute_vote_threshold: int = 3
-    orderbook_snapshot_interval_seconds: int = 60
-    reconciliation_interval_seconds: int = 600
+    orderbook_snapshot_interval_seconds: int = 21600  # 6 hours - runs 4 times per day
+    reconciliation_interval_seconds: int = 21600  # 6 hours - runs 4 times per day
     listing_ttl_days: int = 30
     domain_stale_seconds: int = 3600
     external_oracle_max_age_seconds: int = 600  # staleness threshold for external oracle price adoption
