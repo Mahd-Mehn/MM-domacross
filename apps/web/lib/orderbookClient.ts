@@ -8,5 +8,6 @@ export const orderbookClient = base ? createDomaOrderbookClient({
 	chains: [],
 	apiClientOptions: {
 		baseUrl: base,
+		apiKey: apiKey
 	}
 }) : null;

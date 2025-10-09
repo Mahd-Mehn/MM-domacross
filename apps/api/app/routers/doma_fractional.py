@@ -37,9 +37,25 @@ class FractionalTokenResponse(BaseModel):
     twitter_link: Optional[str]
     doma_rank_score: Optional[float]
     oracle_price_usd: Optional[str]
+    # Normalized prices for better UI display (divided by 1B)
+    normalized_price_usd: Optional[str]
+    normalized_oracle_price_usd: Optional[str]
+    price_scale_factor: str = "1000000000"  # 1 billion
     
     class Config:
         from_attributes = True
+
+
+def normalize_price(price_str: str, scale_factor: Decimal = Decimal("1000000000")) -> str:
+    """Normalize large price values by dividing by scale factor (default 1B)"""
+    try:
+        if not price_str or price_str == "0":
+            return "0.00"
+        price = Decimal(price_str)
+        normalized = price / scale_factor
+        return f"{normalized:.2f}"
+    except Exception:
+        return "0.00"
 
 
 class DomaRankResponse(BaseModel):
@@ -80,6 +96,9 @@ async def get_all_fractional_tokens(
             DomainValuation.domain_name == token.domain_name
         ).order_by(DomainValuation.calculated_at.desc()).first()
         
+        current_price_str = str(token.current_price_usd or 0)
+        oracle_price_str = str(latest_val.oracle_price_usd) if latest_val else None
+        
         token_dict = {
             "token_address": token.token_address,
             "domain_name": token.domain_name,
@@ -87,7 +106,7 @@ async def get_all_fractional_tokens(
             "name": token.name,
             "decimals": token.decimals,
             "total_supply": str(token.total_supply),
-            "current_price_usd": str(token.current_price_usd or 0),
+            "current_price_usd": current_price_str,
             "fractionalized_at": token.fractionalized_at,
             "minimum_buyout_price": str(token.minimum_buyout_price) if token.minimum_buyout_price else None,
             "is_bought_out": token.is_bought_out,
@@ -96,7 +115,9 @@ async def get_all_fractional_tokens(
             "website": token.website,
             "twitter_link": token.twitter_link,
             "doma_rank_score": float(latest_val.doma_rank_score) if latest_val else None,
-            "oracle_price_usd": str(latest_val.oracle_price_usd) if latest_val else None
+            "oracle_price_usd": oracle_price_str,
+            "normalized_price_usd": normalize_price(current_price_str),
+            "normalized_oracle_price_usd": normalize_price(oracle_price_str) if oracle_price_str else None
         }
         result.append(FractionalTokenResponse(**token_dict))
     
@@ -121,6 +142,9 @@ async def get_fractional_token(
         DomainValuation.domain_name == token.domain_name
     ).order_by(DomainValuation.calculated_at.desc()).first()
     
+    current_price_str = str(token.current_price_usd or 0)
+    oracle_price_str = str(latest_val.oracle_price_usd) if latest_val else None
+    
     return FractionalTokenResponse(
         token_address=token.token_address,
         domain_name=token.domain_name,
@@ -128,7 +152,7 @@ async def get_fractional_token(
         name=token.name,
         decimals=token.decimals,
         total_supply=str(token.total_supply),
-        current_price_usd=str(token.current_price_usd or 0),
+        current_price_usd=current_price_str,
         fractionalized_at=token.fractionalized_at,
         minimum_buyout_price=str(token.minimum_buyout_price) if token.minimum_buyout_price else None,
         is_bought_out=token.is_bought_out,
@@ -137,7 +161,9 @@ async def get_fractional_token(
         website=token.website,
         twitter_link=token.twitter_link,
         doma_rank_score=float(latest_val.doma_rank_score) if latest_val else None,
-        oracle_price_usd=str(latest_val.oracle_price_usd) if latest_val else None
+        oracle_price_usd=oracle_price_str,
+        normalized_price_usd=normalize_price(current_price_str),
+        normalized_oracle_price_usd=normalize_price(oracle_price_str) if oracle_price_str else None
     )
 
 
@@ -283,6 +309,7 @@ async def get_fractional_tokens_simple(
     """
     Simple endpoint to get all fractional tokens
     Alias for /doma/fractional/tokens for easier frontend integration
+    Returns array format directly (not wrapped in object)
     """
     tokens = db.query(FractionalToken).all()
     
@@ -293,16 +320,18 @@ async def get_fractional_tokens_simple(
             DomainValuation.domain_name == token.domain_name
         ).order_by(DomainValuation.calculated_at.desc()).first()
         
+        current_price_str = str(token.current_price_usd or 0)
+        oracle_price_str = str(latest_val.oracle_price_usd) if latest_val else None
+        
         token_dict = {
-            "id": token.id,
             "token_address": token.token_address,
             "domain_name": token.domain_name,
             "symbol": token.symbol,
             "name": token.name,
             "decimals": token.decimals,
             "total_supply": str(token.total_supply),
-            "current_price_usd": str(token.current_price_usd or 0),
-            "fractionalized_at": token.fractionalized_at.isoformat() if token.fractionalized_at else None,
+            "current_price_usd": current_price_str,
+            "fractionalized_at": token.fractionalized_at.isoformat() + "Z" if token.fractionalized_at else None,
             "minimum_buyout_price": str(token.minimum_buyout_price) if token.minimum_buyout_price else None,
             "is_bought_out": token.is_bought_out,
             "image_url": token.image_url,
@@ -310,13 +339,14 @@ async def get_fractional_tokens_simple(
             "website": token.website,
             "twitter_link": token.twitter_link,
             "doma_rank_score": float(latest_val.doma_rank_score) if latest_val else None,
-            "oracle_price_usd": str(latest_val.oracle_price_usd) if latest_val else None,
-            "created_at": token.created_at.isoformat() if token.created_at else None,
-            "updated_at": token.updated_at.isoformat() if token.updated_at else None
+            "oracle_price_usd": oracle_price_str,
+            "normalized_price_usd": normalize_price(current_price_str),
+            "normalized_oracle_price_usd": normalize_price(oracle_price_str) if oracle_price_str else None,
+            "price_scale_factor": "1000000000"
         }
         result.append(token_dict)
     
-    return {"tokens": result, "total": len(result)}
+    return result
 
 
 # Also add to main router for direct access
@@ -326,7 +356,7 @@ async def get_all_tokens_direct(
 ):
     """
     Direct endpoint to get all fractional tokens
-    Returns simplified format for frontend consumption
+    Returns simplified format for frontend consumption with normalized prices
     """
     tokens = db.query(FractionalToken).all()
     
@@ -336,16 +366,18 @@ async def get_all_tokens_direct(
             DomainValuation.domain_name == token.domain_name
         ).order_by(DomainValuation.calculated_at.desc()).first()
         
+        current_price_str = str(token.current_price_usd or 0)
+        oracle_price_str = str(latest_val.oracle_price_usd) if latest_val else None
+        
         token_dict = {
-            "id": token.id,
             "token_address": token.token_address,
             "domain_name": token.domain_name,
             "symbol": token.symbol,
             "name": token.name,
             "decimals": token.decimals,
             "total_supply": str(token.total_supply),
-            "current_price_usd": str(token.current_price_usd or 0),
-            "fractionalized_at": token.fractionalized_at.isoformat() if token.fractionalized_at else None,
+            "current_price_usd": current_price_str,
+            "fractionalized_at": token.fractionalized_at.isoformat() + "Z" if token.fractionalized_at else None,
             "minimum_buyout_price": str(token.minimum_buyout_price) if token.minimum_buyout_price else None,
             "is_bought_out": token.is_bought_out,
             "image_url": token.image_url,
@@ -353,10 +385,11 @@ async def get_all_tokens_direct(
             "website": token.website,
             "twitter_link": token.twitter_link,
             "doma_rank_score": float(latest_val.doma_rank_score) if latest_val else None,
-            "oracle_price_usd": str(latest_val.oracle_price_usd) if latest_val else None,
-            "created_at": token.created_at.isoformat() if token.created_at else None,
-            "updated_at": token.updated_at.isoformat() if token.updated_at else None
+            "oracle_price_usd": oracle_price_str,
+            "normalized_price_usd": normalize_price(current_price_str),
+            "normalized_oracle_price_usd": normalize_price(oracle_price_str) if oracle_price_str else None,
+            "price_scale_factor": "1000000000"
         }
         result.append(token_dict)
     
-    return {"tokens": result, "total": len(result)}
+    return result

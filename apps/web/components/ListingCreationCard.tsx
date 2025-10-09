@@ -7,7 +7,12 @@ import { viemToEthersSigner, OrderbookType, createDomaOrderbookClient } from '@d
 let _init = false; let _client: any;
 function getClient(){
   if(!_init){
-    _client = createDomaOrderbookClient({ apiClientOptions: { baseUrl: process.env.NEXT_PUBLIC_DOMA_API_URL || 'https://api.doma.xyz' }} as any);
+    _client = createDomaOrderbookClient({ 
+      apiClientOptions: { 
+        baseUrl: process.env.NEXT_PUBLIC_DOMA_API_URL || 'https://api.doma.xyz',
+        apiKey: process.env.NEXT_PUBLIC_DOMA_API_KEY
+      }
+    } as any);
     _init = true;
   }
   return _client;

@@ -40,10 +40,11 @@ export default function DomainDetailPage({ params }: PageProps) {
   // Fetch live orderbook data
   const { data: orderbookData, isLoading: orderbookLoading } = useOrderbook(tokenData?.domain_name, { intervalMs: 10000 });
 
-  // Initialize Doma SDK client (with type assertion for flexibility)
+  // Initialize Doma SDK client with proper configuration
   const domaClient = createDomaOrderbookClient({
     apiClientOptions: {
-      baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api-testnet.doma.xyz'
+      baseUrl: process.env.NEXT_PUBLIC_DOMA_API_URL || 'https://api-testnet.doma.xyz',
+      apiKey: process.env.NEXT_PUBLIC_DOMA_API_KEY
     },
     source: 'DomaCross',
     chains: [] as any // Type assertion to bypass strict typing

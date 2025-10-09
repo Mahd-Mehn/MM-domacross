@@ -471,6 +471,9 @@ app.include_router(competitions.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(portfolio.router, prefix="/api/v1")
 app.include_router(poll.router, prefix="/api/v1")
+# Include fractional tokens routers BEFORE domains router to avoid catch-all route conflicts
+app.include_router(doma_fractional.router, prefix="/api/v1")
+app.include_router(doma_fractional.simple_router, prefix="/api/v1")  # Simple alias endpoints
 app.include_router(domains.router, prefix="/api/v1")
 app.include_router(valuation.router, prefix="/api/v1")
 app.include_router(market.router, prefix="/api/v1")
@@ -485,8 +488,6 @@ app.include_router(baskets.router, prefix="/api/v1")
 app.include_router(governance.router, prefix="/api/v1")
 app.include_router(defi.router, prefix="/api/v1/defi")
 app.include_router(marketplace.router, prefix="/api/v1")
-app.include_router(doma_fractional.router, prefix="/api/v1")
-app.include_router(doma_fractional.simple_router, prefix="/api/v1")  # Simple alias endpoints
 app.include_router(sync_status.router, prefix="/api/v1")
 app.include_router(debug.router, prefix="/api/v1")
 
