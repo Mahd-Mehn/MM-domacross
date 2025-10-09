@@ -82,6 +82,7 @@ async def lifespan(app_: FastAPI):
     async def poll_loop():
         interval = 21600  # 6 hours - runs 4 times per day
         logger.info("[poll] background poller started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             try:
                 await doma_poll_service.run_once(limit=50)
@@ -94,6 +95,7 @@ async def lifespan(app_: FastAPI):
             return
         interval = settings.orderbook_snapshot_interval_seconds
         logger.info("[orderbook] snapshot loop started interval=%ss", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         from app.database import SessionLocal  # local import to avoid cycles
         while True:
             try:
@@ -130,6 +132,7 @@ async def lifespan(app_: FastAPI):
             return
         interval = 21600  # 6 hours - runs 4 times per day
         logger.info("[reconcile] loop started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             try:
                 await reconciliation_service.run_once(limit=300)
@@ -146,6 +149,7 @@ async def lifespan(app_: FastAPI):
         """
         interval = 21600  # 6 hours - runs 4 times per day
         logger.info("[backfill] loop started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             try:
                 result = await backfill_service.run_once(lookback_minutes=24*60, limit=200)
@@ -158,6 +162,7 @@ async def lifespan(app_: FastAPI):
     async def nav_loop():
         interval = 21600  # 6 hours - runs 4 times per day
         logger.info("[nav] loop started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             try:
                 nav_service.run_once(stale_seconds=600)
@@ -188,6 +193,7 @@ async def lifespan(app_: FastAPI):
     async def fast_snapshot_loop():
         interval = 21600  # 6 hours - runs 4 times per day
         logger.info("[snapshot] loop started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             try:
                 snapshot_service.snapshot_once()
@@ -210,6 +216,7 @@ async def lifespan(app_: FastAPI):
     async def merkle_loop():
         interval = 21600  # 6 hours - runs 4 times per day
         logger.info("[merkle] loop started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         from app.database import SessionLocal as _SL
         while True:
             db = _SL()
@@ -234,6 +241,7 @@ async def lifespan(app_: FastAPI):
         interval = 30  # poll every 30s
         from app.database import SessionLocal as _SL
         logger.info("[chain] ingest loop started interval=%ss", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             db = _SL()
             try:
@@ -253,6 +261,7 @@ async def lifespan(app_: FastAPI):
         interval = 21600  # 6 hours - runs 4 times per day
         from app.database import SessionLocal as _SL
         logger.info("[incentive] loop started interval=%ss (4x daily)", interval)
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             db = _SL()
             try:
@@ -280,6 +289,7 @@ async def lifespan(app_: FastAPI):
             logger.exception("[doma-rank] failed to import services")
             return
         
+        await asyncio.sleep(10)  # Initial delay to let app fully start
         while True:
             try:
                 # First sync fractional tokens from subgraph
