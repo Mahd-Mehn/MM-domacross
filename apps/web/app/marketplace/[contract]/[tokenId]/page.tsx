@@ -44,7 +44,9 @@ export default function DomainDetailPage({ params }: PageProps) {
   const domaClient = createDomaOrderbookClient({
     apiClientOptions: {
       baseUrl: process.env.NEXT_PUBLIC_DOMA_API_URL || 'https://api-testnet.doma.xyz',
-      apiKey: process.env.NEXT_PUBLIC_DOMA_API_KEY
+      defaultHeaders: process.env.NEXT_PUBLIC_DOMA_API_KEY ? {
+        'Api-Key': process.env.NEXT_PUBLIC_DOMA_API_KEY
+      } : undefined
     },
     source: 'DomaCross',
     chains: [] as any // Type assertion to bypass strict typing

@@ -8,6 +8,8 @@ export const orderbookClient = base ? createDomaOrderbookClient({
 	chains: [],
 	apiClientOptions: {
 		baseUrl: base,
-		apiKey: apiKey
-	} as any // Type assertion: SDK supports apiKey at runtime but types are outdated
+		defaultHeaders: apiKey ? {
+			'Api-Key': apiKey
+		} : undefined
+	}
 } as any) : null;

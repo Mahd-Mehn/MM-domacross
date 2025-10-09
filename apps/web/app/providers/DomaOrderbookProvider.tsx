@@ -14,10 +14,13 @@ export const DomaOrderbookProvider: React.FC<{ children: React.ReactNode }>= ({ 
       const existing = getDomaOrderbookClient();
       return existing;
     } catch {
+      const apiKey = process.env.NEXT_PUBLIC_DOMA_API_KEY;
       const cfg: DomaOrderbookSDKConfig = {
         apiClientOptions: {
           baseUrl: process.env.NEXT_PUBLIC_DOMA_API_URL || 'http://localhost:8001',
-          apiKey: process.env.NEXT_PUBLIC_DOMA_API_KEY,
+          defaultHeaders: apiKey ? {
+            'Api-Key': apiKey
+          } : undefined
         }
       } as any;
       return createDomaOrderbookClient(cfg);

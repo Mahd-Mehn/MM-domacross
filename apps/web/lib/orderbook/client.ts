@@ -19,10 +19,13 @@ import { useMemo } from 'react';
 let _inited = false;
 export function ensureOrderbookClient() {
   if (!_inited) {
+    const apiKey = process.env.NEXT_PUBLIC_DOMA_API_KEY;
     createDomaOrderbookClient({
       apiClientOptions: {
         baseUrl: process.env.NEXT_PUBLIC_DOMA_API_URL || 'https://api.doma.xyz',
-        apiKey: process.env.NEXT_PUBLIC_DOMA_API_KEY
+        defaultHeaders: apiKey ? {
+          'Api-Key': apiKey
+        } : undefined
       }
     } as any);
     _inited = true;
