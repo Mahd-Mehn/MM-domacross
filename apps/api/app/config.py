@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = 3600
 
     redis_url: str = "redis://localhost:6379/0"
+    
+    # Celery
+    use_celery: bool = Field(default=True, alias='USE_CELERY')  # Use Celery for background tasks
 
     # Database
     postgres_host: str = "localhost"

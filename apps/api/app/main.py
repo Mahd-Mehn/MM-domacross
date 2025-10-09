@@ -358,7 +358,7 @@ async def lifespan(app_: FastAPI):
     except Exception:
         logger.exception("Failed to start background scheduler")
     
-    # Create a delayed task starter
+    # Create a delayed task starter (only if not using Celery)
     async def start_background_tasks_delayed():
         await asyncio.sleep(5)  # Wait 5 seconds for app to be fully ready
         logger.info("[startup] Starting background tasks...")
@@ -393,8 +393,12 @@ async def lifespan(app_: FastAPI):
         
         logger.info("[startup] Background tasks started successfully")
     
-    # Start the delayed task starter
-    asyncio.create_task(start_background_tasks_delayed())
+    # Start the delayed task starter (only if Celery is disabled)
+    if settings.use_celery:
+        logger.info("[startup] Celery enabled - background tasks will run via Celery worker")
+    else:
+        logger.info("[startup] Celery disabled - using asyncio background tasks")
+        asyncio.create_task(start_background_tasks_delayed())
     
     if loop_tasks:
         bg_task = loop_tasks[0]
