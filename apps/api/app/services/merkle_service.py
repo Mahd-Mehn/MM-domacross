@@ -63,31 +63,51 @@ class MerkleService:
     def _update_accumulator(self, db: Session, leaf: bytes):
         curr = leaf
         level = 0
+        max_retries = 3
+        retry_count = 0
+        
         while True:
-            node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).with_for_update().first()
-            if node is None:
-                # Check one more time after acquiring lock to avoid race condition
-                node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).first()
+            try:
+                node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).with_for_update().first()
                 if node is None:
-                    new_node = MerkleAccumulator(level=level, node_hash='0x'+curr.hex())
-                    db.add(new_node)
-                    break
+                    # Check one more time after acquiring lock to avoid race condition
+                    node = db.query(MerkleAccumulator).filter(MerkleAccumulator.level == level).first()
+                    if node is None:
+                        new_node = MerkleAccumulator(level=level, node_hash='0x'+curr.hex())
+                        db.add(new_node)
+                        db.flush()  # Flush to detect conflicts early
+                        break
+                    else:
+                        # Node was created by another transaction, continue with combine
+                        existing = bytes.fromhex(node.node_hash[2:])
+                        curr = sha256(existing + curr).digest()
+                        db.delete(node)
+                        db.flush()
+                        level += 1
+                        continue
                 else:
-                    # Node was created by another transaction, continue with combine
                     existing = bytes.fromhex(node.node_hash[2:])
+                    # combine and clear this level (simulate carry)
                     curr = sha256(existing + curr).digest()
                     db.delete(node)
-                    db.flush()
+                    db.flush()  # Ensure delete is processed before moving to next level
                     level += 1
                     continue
-            else:
-                existing = bytes.fromhex(node.node_hash[2:])
-                # combine and clear this level (simulate carry)
-                curr = sha256(existing + curr).digest()
-                db.delete(node)
-                db.flush()  # Ensure delete is processed before moving to next level
-                level += 1
-                continue
+            except Exception as e:
+                # Handle unique constraint violation
+                if 'unique constraint' in str(e).lower() or 'duplicate key' in str(e).lower():
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        # Skip this update if we can't resolve the conflict
+                        db.rollback()
+                        return
+                    # Rollback and retry
+                    db.rollback()
+                    level = 0
+                    curr = leaf
+                    continue
+                else:
+                    raise
 
     def _compute_root_from_accumulator(self, db: Session) -> str:
         levels = db.query(MerkleAccumulator).order_by(MerkleAccumulator.level.asc()).all()
@@ -104,30 +124,35 @@ class MerkleService:
         return '0x'+root.hex()
 
     def snapshot_incremental(self, db: Session) -> Optional[MerkleSnapshot]:
-        last = self.latest(db)
-        # Determine new events
-        q = db.query(AuditEvent).order_by(AuditEvent.id.asc())
-        if last:
-            events = q.filter(AuditEvent.id > last.last_event_id).all()
-        else:
-            events = q.all()
-        if not events:
-            return None
-        for r in events:
-            leaf = _hash_leaf({"id": r.id, "t": r.event_type, "e": r.entity_type, "eid": r.entity_id, "u": r.user_id, "p": r.payload})
-            self._update_accumulator(db, leaf)
-        # root from accumulator
-        root = self._compute_root_from_accumulator(db)
-        total_events = q.count()
-        snap = MerkleSnapshot(last_event_id=events[-1].id, merkle_root=root, event_count=total_events)
-        # Sign
-        sig = self._sign(root)
-        if sig:
-            snap.signature = sig
-        # Anchor placeholder: store none (future on-chain tx hash after broadcast)
-        db.add(snap)
-        db.commit()
-        db.refresh(snap)
+        try:
+            last = self.latest(db)
+            # Determine new events
+            q = db.query(AuditEvent).order_by(AuditEvent.id.asc())
+            if last:
+                events = q.filter(AuditEvent.id > last.last_event_id).all()
+            else:
+                events = q.all()
+            if not events:
+                return None
+            for r in events:
+                leaf = _hash_leaf({"id": r.id, "t": r.event_type, "e": r.entity_type, "eid": r.entity_id, "u": r.user_id, "p": r.payload})
+                self._update_accumulator(db, leaf)
+            # root from accumulator
+            root = self._compute_root_from_accumulator(db)
+            total_events = q.count()
+            snap = MerkleSnapshot(last_event_id=events[-1].id, merkle_root=root, event_count=total_events)
+            # Sign
+            sig = self._sign(root)
+            if sig:
+                snap.signature = sig
+            # Anchor placeholder: store none (future on-chain tx hash after broadcast)
+            db.add(snap)
+            db.commit()
+            db.refresh(snap)
+        except Exception as e:
+            # Rollback on any error to clear invalid transaction state
+            db.rollback()
+            raise
         # Attempt on-chain anchoring (async call simplified synchronously if possible)
         try:
             if blockchain_service.ensure_initialized():

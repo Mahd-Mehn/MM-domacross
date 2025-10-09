@@ -6,12 +6,13 @@ import { formatEther } from 'viem';
 import { BarChart3, TrendingUp, Shield, Activity, DollarSign, PieChart, Globe } from 'lucide-react';
 import CollateralVault from '@/components/defi/CollateralVault';
 import FuturesTrading from '@/components/defi/FuturesTrading';
+import { CollateralPanel } from '@/components/defi/CollateralPanel';
 import { DomainPriceChart, PortfolioDistributionChart, MarketOverviewChart } from '@/components/charts/DomainPriceChart';
 import type { RiskMetrics } from '@/lib/defi/types';
 
 export default function DeFiDashboard() {
   const { address, isConnected } = useAccount();
-  const [activeView, setActiveView] = useState<'overview' | 'vault' | 'futures' | 'marketplace' | 'charts'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'vault' | 'futures' | 'collateral' | 'charts'>('overview');
   
   // Mock data
   const mockRiskMetrics: RiskMetrics = {
@@ -166,6 +167,16 @@ export default function DeFiDashboard() {
             Futures Trading
           </button>
           <button
+            onClick={() => setActiveView('collateral')}
+            className={`pb-3 px-4 text-sm font-medium transition-colors ${
+              activeView === 'collateral'
+                ? 'text-brand-400 border-b-2 border-brand-400'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Fractional Collateral
+          </button>
+          <button
             onClick={() => setActiveView('charts')}
             className={`pb-3 px-4 text-sm font-medium transition-colors ${
               activeView === 'charts'
@@ -317,6 +328,7 @@ export default function DeFiDashboard() {
           </div>
         )}
         {activeView === 'futures' && <FuturesTrading />}
+        {activeView === 'collateral' && <CollateralPanel />}
         {activeView === 'charts' && (
           <div className="space-y-6">
             {/* Market Overview */}

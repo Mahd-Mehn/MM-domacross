@@ -427,7 +427,7 @@ set_connection_scope = getattr(_bc, 'set_connection_scope', lambda *a, **k: None
 # A 400 on OPTIONS previously indicated the Origin did not match the static allow_origins list,
 # causing the request to fall through to normal routing (and a dependency returned 400) instead of
 # CORSMiddleware short-circuiting with 200. We switch to a regex that matches ephemeral preview domains.
-_CORS_REGEX = r"^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?|https://3000-[a-z0-9]+\.cloudspaces\.litng\.ai|https://mm-domacross\.vercel\.app|https?://[0-9]{1,3}(?:\.[0-9]{1,3}){3}(:[0-9]+)?)$"
+_CORS_REGEX = r"^(https?://(localhost|127\.0\.0\.1)(:[0-9]+)?|https://3000-[a-z0-9]+\.cloudspaces\.litng\.ai|https://mm-domacross.*\.vercel\.app|https?://[0-9]{1,3}(?:\.[0-9]{1,3}){3}(:[0-9]+)?)$"
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=_CORS_REGEX,

@@ -109,10 +109,15 @@ class NavService:
                         self._accrue_management_fee(session, etf, nav, now)
                         self._crystallize_performance_fee(session, etf, nav, now)
                         self.total_recomputes += 1
-                    except Exception:
+                    except Exception as e:
                         logger.exception("[nav] failed recompute etf_id=%s", etf.id)
+                        # Rollback the session to clear the failed transaction
+                        session.rollback()
             session.commit()
             self.last_run = now
+        except Exception as e:
+            logger.exception("[nav] run_once failed, rolling back")
+            session.rollback()
         finally:
             try:
                 session.close()
