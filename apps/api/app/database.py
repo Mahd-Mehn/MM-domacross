@@ -17,7 +17,8 @@ engine = create_engine(
     pool_recycle=3600,  # Recycle connections after 1 hour
     connect_args={
         "connect_timeout": 10,  # Connection timeout in seconds
-        "options": "-c statement_timeout=30000"  # Query timeout in milliseconds (30s)
+        # Note: statement_timeout removed - not supported by Neon pooled connections
+        # Use unpooled connection string or set timeout at query level if needed
     }
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
